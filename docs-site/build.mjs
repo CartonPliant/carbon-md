@@ -298,14 +298,14 @@ function copyTree(from, to) {
 copyTree(join(ROOT, "static"), OUT);
 
 // static extras: /agent (the agent install contract), robots, sitemap
-// docs-site/ lives inside the repo, so the contract is one level up — not
-// two. When this path was wrong the copy was skipped in silence while the
-// _headers rule below still declared text/plain, so /agent.txt answered with
-// the site's fallback HTML under a content type promising otherwise. An agent
-// following the install contract would have parsed a web page. Fail loudly.
-const agentTxt = join(ROOT, "..", "agent.txt");
-if (!existsSync(agentTxt)) {
-  throw new Error("agent.txt not found at " + agentTxt + " — /agent would serve fallback HTML labelled text/plain");
+// In the public repo the contract is one level up; in the private workspace
+// the CLI mirror lives in repo/. Support both layouts without inventing a
+// contract or changing the landing site. Fail loudly rather than serving
+// fallback HTML under a text/plain content type.
+const agentCandidates = [join(ROOT, "..", "agent.txt"), join(ROOT, "..", "repo", "agent.txt")];
+const agentTxt = agentCandidates.find((path) => existsSync(path));
+if (!agentTxt) {
+  throw new Error("agent.txt not found at " + agentCandidates.join(" or ") + " — /agent would serve fallback HTML labelled text/plain");
 }
 {
   mkdirSync(join(OUT, "agent"), { recursive: true });

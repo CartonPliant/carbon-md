@@ -4,7 +4,7 @@ Living map of **model string → emission class** used by `carbonmd-factors-2026
 
 This page is steered weekly (Sunday evening, Europe/Zurich): new public releases and models seen in agent usage are classified, documented here, and wired into `src/core/factors.ts`.
 
-**Last steered:** 2026-10-04<br>
+**Last steered:** 2026-10-11<br>
 **Factors version:** `carbonmd-factors-2026-08`
 
 ## How to read this
@@ -44,6 +44,10 @@ Workhorse coding / agent models. Central **2.5 gCO₂e / 1k output tokens**.
 | Upstage | `upstage/solar-pro4:free`, `solar-pro4` |
 | Shanghai AI Lab | `Atria-Dawn-Preview`, `atria-dawn-preview` |
 | Xiaomi | `mimo-v2.6-pro`, `XiaomiMiMo/MiMo-V2.6-Pro-RL`, `mimo-v2.6-pro-ultraspeed` |
+| Reflection | Beam (early-access product name; public API ID not confirmed) |
+| MiniMax | `MiniMax-M3`, `MiniMaxAI/MiniMax-M3` (M3 only; not H3 media generation) |
+| Mistral | `mistral-large-4`, `mistralai/mistral-large-4-0` |
+| StepFun | `stepfun/step-5-preview` |
 | Other | `mistral-large*`, `command*`, `*405b*`, `*r1*` |
 
 ## Small
@@ -53,13 +57,14 @@ Cheap / fast tiers. Central **0.15 gCO₂e / 1k output tokens**.
 | Family | Example IDs |
 |---|---|
 | OpenAI | `gpt-5.6-luna`, `gpt-6-luna`, `gpt-5.4-mini`, `*-mini`, `*-nano` |
+| Anthropic | `claude-haiku-5-5`, `anthropic/claude-haiku-5.5` |
 | Google | `gemini-3.5-flash`, `gemini-3.6-flash`, `gemini-3.7-flash`, `gemini-3.8-flash`, `gemini-3.8-flash-cyber`, `*-flash-lite*` |
 | DeepSeek | `deepseek-v4-flash`, `deepseek/deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`, `deepseek-v4.1-flash`, `deepseek/deepseek-v4.1-flash`, `deepseek-flash` |
 | xAI | `grok-composer-2.5-fast` |
 | Alibaba | `qwen/qwen3.8-flash`, `qwen/qwen3.8-flash-next` |
-| Zhipu | `z-ai/glm-5.3-flash`, `stealth/ox-alpha` (unmasked as GLM-5.3-Flash) |
+| Zhipu | `z-ai/glm-5.3-flash`, `stealth/ox-alpha` (unmasked as GLM-5.3-Flash), `glm-5.3-fast` (gateway serving ID; see caveat below) |
 | StepFun | `stepfun/step-3.7-flash` |
-| InclusionAI | `inclusionai/ling-3.0-flash`, `inclusionai/ling-3.0-flash-fin` |
+| InclusionAI | `inclusionai/ling-3.0-flash`, `inclusionai/ling-3.0-flash-fin`, `inclusionai/ling-3.1-flash` |
 | NVIDIA | `nemotron-3.5-lightning` |
 | Liquid | `lfm-2.5-2.6b` |
 | IBM | `ibm-granite/granite-4.2-8b` |
@@ -151,11 +156,30 @@ All Hermes model strings checked in this run have a known classification. **Emis
 
 [Cloudflare Clef / Clef-flash](https://blog.cloudflare.com/clef-decision-models/), [Perplexity `pplx-decider-v1-27b`](https://huggingface.co/perplexity-ai/pplx-decider-v1-27b) and [Strands `strands-decider-2b`](https://strandsagents.com/blog/introducing-strands-decider/) were also reviewed. They return decisions/probabilities rather than autoregressive text. Their generic heuristic results (e.g. `flash` / `2b` → small) **are not validated emissions factors for decision inference**; do not substitute option counts for output tokens. No new decision-specific bands are introduced. Audio/video-generation releases are outside this text-token catalog's supported accounting.
 
+## 2026-10-11 steer: releases, serving variants and catch-up
+
+Review window: **2026-10-05 through 2026-10-11**. Release announcements are distinguished from gateway additions and serving updates; a tracker first seeing a model this week does not establish its launch date.
+
+- [Claude Haiku 5.5](https://www.anthropic.com/claude-haiku-5-5) (October 7, publisher date), `claude-haiku-5-5` / `anthropic/claude-haiku-5.5` → **small**, using the existing `haiku` marker. Effort controls, lower prices and a changed tokenizer do not alter the factor bands.
+- [Reflection Beam](https://reflection.ai/blog/introducing-beam) (announced October 5; benchmark update October 8) → **large** through a narrow product-name rule: a text-only 501B-total / 23B-active coding and agentic MoE. Early access is waitlisted; weights and developer artifacts are promised later in October, **not confirmed released**. `Beam` is a catalog label, not a confirmed public API ID. Vendor compute comparisons are not measured gCO₂e.
+- [Mistral Large 4](https://openrouter.ai/mistralai/mistral-large-4-0), gateway ID `mistralai/mistral-large-4-0` (listed October 6) → **large**, through the existing Mistral + large rule, regardless of the provider's capability label “frontier”.
+- [Step 5 Preview](https://openrouter.ai/stepfun/step-5-preview), `stepfun/step-5-preview` (October 8 gateway listing) → **large** through the existing Step family rule; 600B total / 27B active coding and agent workhorse.
+- [GLM 5.3 Fast](https://llmgateway.io/models/glm-5.3-fast), `glm-5.3-fast` (October 7 gateway listing) → **small** through the existing `fast` marker. **Important limitation:** the gateway describes this as accelerated GLM-5.3 / Prime with unchanged capabilities, not a disclosed smaller architecture. This is the requested naming heuristic, **not evidence of lower per-token emissions**. Bare `glm-5.3` remains large; no new Z.ai base-model launch is asserted.
+- Catch-up: [MiniMax M3](https://www.minimax.io/blog/minimax-m3), official API `MiniMax-M3` and checkpoint `MiniMaxAI/MiniMax-M3` → **large** through a narrow M3 rule. [SambaCloud prompt caching](https://sambanova.ai/blog/introducing-prompt-caching-for-minimax-m3-on-sambacloud) (October 7) is a serving update, **not an M3 launch this week**. Do not extend this rule to MiniMax H3 media generation or undocumented future models.
+- Catch-up: [Ling 3.1 Flash](https://openrouter.ai/inclusionai/ling-3.1-flash), `inclusionai/ling-3.1-flash` (gateway listing October 2) → **small** through `flash`; not a new October 5–11 base-model launch.
+- [Reka Edge 2603](https://llmgateway.io/models/reka-edge-2603), `reka-edge-2603` (gateway listing October 9) remains **medium + guessed** pending sufficient architecture/inference provenance. Low price and the word “Edge” do not establish a small emissions class.
+
+[GPT-6 / Intelligent UI](https://openai.com/index/gpt-6-for-everyone) is a ChatGPT rollout; this source does not establish a new public API ID. No ID is invented. No additional uncatalogued text-model release was confirmed for Google, xAI, DeepSeek, Moonshot/Kimi, Qwen or Meta Muse in the reviewed sources. Existing Hermes model strings remain covered; no new usage ID needs a mapping this week.
+
+Clef-omni and `pplx-decider-v1.1-27b` are decision-model updates, not supported autoregressive-token workloads. Qwen-Image-2.1-Turbo, Nano Banana 2.1, Grok Imagine Video 1.5 Lite and speech/music releases remain outside these text-token estimates. Gemini Omni SDK enum additions alone do not validate audio/video-output accounting.
+
+**Emission bands, input-token weight and factors version remain unchanged.** New mappings and catalog examples only; no historical ledger rewrite. These are cloud-inference heuristics, not local-compute measurements.
+
 ## Medium (guessed)
 
 Anything without a known marker. Central **0.8 gCO₂e / 1k output tokens**, range widened in `status`.
 
-`pareto` is now documented here as **medium + guessed**, pending backend provenance; it was not found in Hermes usage.
+`pareto` and `reka-edge-2603` are documented here as **medium + guessed**, pending backend/inference provenance; neither was found in Hermes usage.
 
 If your production model lands here, open an issue or wait for the weekly steer.
 

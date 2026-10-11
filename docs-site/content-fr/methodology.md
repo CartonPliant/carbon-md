@@ -4,7 +4,7 @@
 ```
 carbonmd-factors-2026-08
 ```
-Mis à jour le **2026-10-04** (nouveaux IDs seulement ; bandes gCO₂e inchangées).
+Mis à jour le **2026-10-11** (nouveaux IDs seulement ; bandes gCO₂e inchangées).
 
 ## Formule
 ```
@@ -35,6 +35,16 @@ Règles ajoutées : Gemini + Argon → **frontier** ; MiMo + Pro → **large** ;
 | **large** | `claude-sonnet-5-5`, `grok-4.7`, `XiaomiMiMo/MiMo-V2.6-Pro-RL`, `mimo-v2.6-pro-ultraspeed` |
 | **small** | `gpt-6-luna`, `XiaomiMiMo/MiMo-V2.6-Flash-RL`, `IndexTeam/Index-Translate-2B`, `IndexTeam/Index-Translate-9B`, `IndexTeam/Index-Translate-35B-A3B-preview` |
 | **medium (guessed)** | `pareto` (26.10 Preview ; provenance des backends non résolue) |
+
+## Exemples du steer 2026-10-11
+
+| Classe | Exemples |
+|---|---|
+| **large** | Beam (nom produit en accès anticipé, pas un ID API confirmé), `MiniMax-M3`, `MiniMaxAI/MiniMax-M3`, `mistralai/mistral-large-4-0`, `stepfun/step-5-preview` |
+| **small** | `claude-haiku-5-5`, `anthropic/claude-haiku-5.5`, `inclusionai/ling-3.1-flash`, `glm-5.3-fast` |
+| **medium (guessed)** | `reka-edge-2603` (ID gateway ; provenance d’architecture/inférence insuffisante) |
+
+Nouvelles règles explicites limitées à Reflection Beam et MiniMax M3 ; les autres exemples utilisent les marqueurs existants. **`glm-5.3-fast` est small uniquement via la règle de nom `fast`.** La gateway décrit un GLM-5.3 accéléré aux capacités inchangées, pas une architecture plus petite : aucune réduction mesurée d’émissions n’est démontrée. `glm-5.3` reste large. M3 et Ling 3.1 Flash sont des rattrapages, pas des lancements cette semaine. Bandes et poids des tokens d’entrée inchangés.
 
 Les modèles de décision Clef, Perplexity Decider et Strands Decider sont suivis, mais **pas validés par la formule de tokens de sortie autorégressifs** : options/probabilités ne sont pas des tokens générés. La génération audio/vidéo et l’inférence locale nécessitent un autre calcul ; un marqueur reconnu ne les rend pas pris en charge.
 

@@ -1,6 +1,6 @@
 # Catalogue modèles
 
-**Dernier steer :** 2026-10-04 · `carbonmd-factors-2026-08`
+**Dernier steer :** 2026-10-11 · `carbonmd-factors-2026-08`
 
 ## Frontier
 `gpt-5.2-codex`, `gpt-5.3-codex`, `gpt-5.5`, `gpt-5.6-sol`, `gpt-6-astra`, `gpt-6-astra-pro`, `claude-opus-5`, `claude-fable-5`, `claude-fable-5.1`, `claude-mythos-5.1`, `gemini-3.1-pro-preview`
@@ -10,12 +10,12 @@ Ajouts : `gpt-6-sol`, `gpt-6.1-sol`, `claude-opus-5-5`, `claude-opus-5-5[1m]`, `
 ## Large
 `gpt-5.6-terra`, `claude-sonnet-5`, `kimi-k2.6`, `kimi-k2.8-preview`, `kimi-k3`, `k3`, `grok-4.3`, `grok-4.5`, `grok-4.6`, `grok-build-0.1`, `deepseek-v4-pro`, `deepseek-v4-pro-0813`, `qwen3.7-max`, `qwen3.8-max`, `qwen3.8-max-0902`, `qwen3.8-2.4t-a95b`, `qwen3.8-27b`, `glm-5.2`, `glm-5.3`, `muse-spark-1.2-contributor`, `muse-spark-1.3`, `muse-spark-1.3-contributor`, `seed-2-1-turbo`, `seed-2.0-code`, `sakana-namazu`, `hy4-preview`, `longcat-2.0`, `upstage/solar-pro4:free`, `Atria-Dawn-Preview`
 
-Ajouts : `claude-sonnet-5-5`, `anthropic/claude-sonnet-5.5`, `grok-4.7`, `mimo-v2.6-pro`, `XiaomiMiMo/MiMo-V2.6-Pro-RL`, `mimo-v2.6-pro-ultraspeed`.
+Ajouts : `claude-sonnet-5-5`, `anthropic/claude-sonnet-5.5`, `grok-4.7`, `mimo-v2.6-pro`, `XiaomiMiMo/MiMo-V2.6-Pro-RL`, `mimo-v2.6-pro-ultraspeed`, Beam (nom produit en accès anticipé ; ID API public non confirmé), `MiniMax-M3`, `MiniMaxAI/MiniMax-M3`, `mistral-large-4`, `mistralai/mistral-large-4-0`, `stepfun/step-5-preview`.
 
 ## Small
 `gpt-5.6-luna`, `gpt-5.4-mini`, `gemini-3.1-flash-lite-preview`, `gemini-3.5-flash`, `gemini-3.6-flash`, `gemini-3.7-flash`, `gemini-3.8-flash`, `gemini-3.8-flash-cyber`, `deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`, `deepseek-v4.1-flash`, `deepseek-flash`, `grok-composer-2.5-fast`, `qwen3.8-flash`, `qwen3.8-flash-next`, `glm-5.3-flash`, `stealth/ox-alpha`, `step-3.7-flash`, `ling-3.0-flash-fin`, `nemotron-3.5-lightning`, `lfm-2.5-2.6b`, `hy-mt2-1.8b`, `hy-mt2-7b`, `hy-mt2-30b-a3b`, `granite-4.2-8b`, `mercury-2.5-preview`
 
-Ajouts : `gpt-6-luna`, `mimo-v2.6-flash`, `XiaomiMiMo/MiMo-V2.6-Flash-RL`, `IndexTeam/Index-Translate-2B`, `IndexTeam/Index-Translate-9B`, `IndexTeam/Index-Translate-35B-A3B-preview`.
+Ajouts : `gpt-6-luna`, `mimo-v2.6-flash`, `XiaomiMiMo/MiMo-V2.6-Flash-RL`, `IndexTeam/Index-Translate-2B`, `IndexTeam/Index-Translate-9B`, `IndexTeam/Index-Translate-35B-A3B-preview`, `claude-haiku-5-5`, `anthropic/claude-haiku-5.5`, `glm-5.3-fast` (ID de service gateway ; réserve ci-dessous), `inclusionai/ling-3.1-flash`.
 
 > **Note de décision (steer 2026-08) :** `grok-composer-2.5-fast` est classé **small**, pas large.
 > La règle explicite `composer` + `fast` (tier rapide/économique xAI) prime sur la règle
@@ -51,7 +51,26 @@ Les nouveaux IDs effectivement présents dans Hermes (`gpt-6.1-sol`, `gpt-6-sol`
 
 [Clef / Clef-flash](https://blog.cloudflare.com/clef-decision-models/), [`pplx-decider-v1-27b`](https://huggingface.co/perplexity-ai/pplx-decider-v1-27b) et [`strands-decider-2b`](https://strandsagents.com/blog/introducing-strands-decider/) produisent des décisions/probabilités, pas du texte autorégressif. Le résultat de l’heuristique générique (`flash` / `2b` → small, par exemple) **n’est pas un facteur d’émissions validé pour ces appels**. Ne pas compter les options comme des tokens de sortie. Pas de nouvelles bandes dédiées. Les sorties audio/vidéo ne sont pas couvertes par ce catalogue de tokens texte.
 
+## Steer 2026-10-11 : sorties, variantes de service et rattrapage
+
+Revue du **2026-10-05 au 2026-10-11**. Une première apparition dans un tracker n’est pas une preuve de lancement cette semaine : annonces, ajout gateway et optimisation du service sont distingués.
+
+- [Claude Haiku 5.5](https://www.anthropic.com/claude-haiku-5-5) (7 octobre, date éditeur), `claude-haiku-5-5` / `anthropic/claude-haiku-5.5` → **small**, marqueur existant `haiku`. Réglage d’effort, prix et tokenizer ne changent pas les bandes.
+- [Reflection Beam](https://reflection.ai/blog/introducing-beam) (annonce le 5 octobre ; benchmarks actualisés le 8) → **large** via une règle étroite sur le nom produit : MoE texte de coding/agents, 501B totaux / 23B actifs. Accès anticipé sur liste d’attente ; poids et outils promis plus tard en octobre, **pas confirmés publiés**. `Beam` est un libellé, pas un ID API public confirmé. Les comparaisons de calcul du fournisseur ne sont pas des mesures gCO₂e.
+- [Mistral Large 4](https://openrouter.ai/mistralai/mistral-large-4-0), `mistralai/mistral-large-4-0` (référencé le 6 octobre) → **large**, règle existante Mistral + large, indépendamment du qualificatif de capacité « frontier » de l’éditeur.
+- [Step 5 Preview](https://openrouter.ai/stepfun/step-5-preview), `stepfun/step-5-preview` (référencé le 8 octobre) → **large**, règle Step existante ; MoE de coding/agents 600B totaux / 27B actifs.
+- [GLM 5.3 Fast](https://llmgateway.io/models/glm-5.3-fast), `glm-5.3-fast` (gateway, 7 octobre) → **small**, marqueur existant `fast`. **Réserve importante :** la gateway décrit un GLM-5.3 / Prime accéléré, aux capacités inchangées, pas une architecture plus petite divulguée. Heuristique de nom demandée, **pas une preuve de baisse d’émissions par token**. `glm-5.3` reste large ; aucune nouvelle sortie de modèle de base Z.ai affirmée.
+- Rattrapage : [MiniMax M3](https://www.minimax.io/blog/minimax-m3), API `MiniMax-M3` / checkpoint `MiniMaxAI/MiniMax-M3` → **large**, nouvelle règle limitée à M3. Le [prompt caching SambaCloud](https://sambanova.ai/blog/introducing-prompt-caching-for-minimax-m3-on-sambacloud) (7 octobre) est une optimisation du service, **pas un lancement M3 cette semaine**. Pas d’extension à H3 génératif ni aux futurs modèles inconnus.
+- Rattrapage : [Ling 3.1 Flash](https://openrouter.ai/inclusionai/ling-3.1-flash), `inclusionai/ling-3.1-flash` (gateway, 2 octobre) → **small** via `flash` ; pas une sortie de base du 5–11 octobre.
+- [Reka Edge 2603](https://llmgateway.io/models/reka-edge-2603), `reka-edge-2603` (gateway, 9 octobre) reste **medium + guessed**, provenance d’architecture/inférence insuffisante. Le prix et le mot « Edge » ne prouvent pas une classe small.
+
+[GPT-6 / Intelligent UI](https://openai.com/index/gpt-6-for-everyone) est un déploiement ChatGPT ; cette source ne confirme pas de nouvel ID API public. Aucun ID inventé. Aucune autre sortie texte non cataloguée confirmée pour Google, xAI, DeepSeek, Moonshot/Kimi, Qwen ou Meta Muse dans les sources examinées. Tous les IDs Hermes inspectés restent couverts ; aucun nouvel ID d’usage à mapper cette semaine.
+
+Clef-omni et `pplx-decider-v1.1-27b` : mises à jour de modèles de décision, hors formule autorégressive. Qwen-Image-2.1-Turbo, Nano Banana 2.1, Grok Imagine Video 1.5 Lite et sorties voix/musique : hors estimation tokens texte. Les ajouts d’enums Gemini Omni dans un SDK ne valident pas le calcul pour les sorties audio/vidéo.
+
+**Bandes gCO₂e, poids des tokens d’entrée et version inchangés.** Mappings et exemples seulement ; aucun historique réécrit. Heuristiques cloud, pas mesures de calcul local.
+
 ## Medium
-Inconnu / guessed. `pareto` est documenté **medium + guessed**, en attente de provenance des backends ; absent de l’usage Hermes inspecté.
+Inconnu / guessed. `pareto` et `reka-edge-2603` sont documentés **medium + guessed**, en attente de provenance des backends/inférence ; absents de l’usage Hermes inspecté.
 
 Steer auto : dimanche 20:00 Europe/Zurich.

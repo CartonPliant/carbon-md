@@ -8,7 +8,7 @@ How carbon.md turns tokens into grams — and why every number carries a range.
 carbonmd-factors-2026-08
 ```
 
-Catalog refreshed **2026-10-04** (new IDs only; gCO₂e bands unchanged). The version is pinned in your `carbon.md` and stamped on **every ledger event**. Estimates are only comparable within a version. When factors are revised, old events keep their original stamp — we never silently rewrite history.
+Catalog refreshed **2026-10-11** (new IDs only; gCO₂e bands unchanged). The version is pinned in your `carbon.md` and stamped on **every ledger event**. Estimates are only comparable within a version. When factors are revised, old events keep their original stamp — we never silently rewrite history.
 
 ## The model
 
@@ -102,6 +102,16 @@ The latest steer also recognizes Gemini + Argon as **frontier**, MiMo + Pro as *
 | **large** | `claude-sonnet-5-5`, `grok-4.7`, `XiaomiMiMo/MiMo-V2.6-Pro-RL`, `mimo-v2.6-pro-ultraspeed` |
 | **small** | `gpt-6-luna`, `XiaomiMiMo/MiMo-V2.6-Flash-RL`, `IndexTeam/Index-Translate-2B`, `IndexTeam/Index-Translate-9B`, `IndexTeam/Index-Translate-35B-A3B-preview` |
 | **medium (guessed)** | `pareto` (26.10 Preview; backend provenance unresolved) |
+
+### New examples from the 2026-10-11 steer
+
+| Class | Examples |
+|---|---|
+| **large** | Beam (early-access product name, not a confirmed API ID), `MiniMax-M3`, `MiniMaxAI/MiniMax-M3`, `mistralai/mistral-large-4-0`, `stepfun/step-5-preview` |
+| **small** | `claude-haiku-5-5`, `anthropic/claude-haiku-5.5`, `inclusionai/ling-3.1-flash`, `glm-5.3-fast` |
+| **medium (guessed)** | `reka-edge-2603` (gateway ID; insufficient architecture/inference provenance) |
+
+New explicit mappings are limited to Reflection Beam and MiniMax M3; other examples use existing markers. **`glm-5.3-fast` is small only because of the existing `fast` naming rule.** Its gateway describes accelerated GLM-5.3 with unchanged capabilities, not a smaller architecture: do not read the class as a measured emissions reduction. Bare `glm-5.3` remains large. M3 and Ling 3.1 Flash are catch-up entries, not launches this week. Factor bands and input weight are unchanged.
 
 Decision-only models (Clef, Perplexity Decider, Strands Decider) are tracked in the catalog but **not validated by this autoregressive output-token formula**. Probabilities/options are not generated tokens. Likewise, audio/video generation and local inference require different accounting; a matching name marker does not make those workloads supported.
 

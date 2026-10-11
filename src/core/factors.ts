@@ -11,8 +11,8 @@
  * figure of honesty. Ranges are wide BY DESIGN: cloud inference is a
  * black box. Estimates are only comparable within a factors version.
  *
- * Classification catalog refreshed 2026-10-04 against live agent usage
- * (Hermes) + public model releases / limited previews through 2026-10-04.
+ * Classification catalog refreshed 2026-10-11 against live agent usage
+ * (Hermes) + public model releases / limited previews through 2026-10-11.
  * Factor *bands* unchanged — new IDs only; still carbonmd-factors-2026-08.
  */
 
@@ -155,6 +155,8 @@ export function classify(model: string): { cls: ModelClass; guessed: boolean } {
     raw.includes("longcat") ||
     raw.includes("solar-pro") || // Upstage Solar Pro 4 — agentic workhorse
     has("atria") || // Shanghai AI Lab Atria Dawn Preview — 744B agentic MoE
+    /^(?:reflection(?:[ .-]ai)?[\/ -])?beam$/.test(raw) || // Reflection Beam preview, 501B/23B active; not an API-ID claim
+    ((has("minimax") || has("minimaxai")) && has("m3")) || // MiniMax M3 coding/agent workhorse; not all MiniMax modalities
     (has("mimo") && has("pro")) // MiMo-V2.6-Pro / Pro-RL / Pro-UltraSpeed (42B active)
   ) {
     return { cls: "large", guessed: false };

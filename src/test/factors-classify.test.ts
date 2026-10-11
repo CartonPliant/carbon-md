@@ -7,7 +7,7 @@ test("factors version is stamped 2026-08", () => {
   assert.equal(FACTORS_VERSION, "carbonmd-factors-2026-08");
 });
 
-test("2026-10-04 steer preserves every emission band and input weight", () => {
+test("2026-10-11 steer preserves every emission band and input weight", () => {
   assert.deepEqual(CLASS_FACTORS, {
     frontier: { low: 1.5, central: 4.5, high: 15 },
     large: { low: 0.8, central: 2.5, high: 8 },
@@ -37,6 +37,25 @@ test("2026-10-04 releases, usage aliases and catch-up IDs", () => {
   assert.deepEqual(classify("gemini-4-argon-mini"), { cls: "small", guessed: false });
   // Do not extrapolate the 3B-active exception to unknown future Index sizes.
   assert.deepEqual(classify("index-translate-70b"), { cls: "medium", guessed: true });
+});
+
+test("2026-10-11 releases, provider IDs and catch-up", () => {
+  for (const model of ["Beam", "Reflection Beam", "reflection/beam", "reflection-ai/beam",
+    "MiniMax-M3", "minimax/minimax-m3", "MiniMaxAI/MiniMax-M3",
+    "mistralai/mistral-large-4-0", "mistral-large-4", "stepfun/step-5-preview"]) {
+    assert.deepEqual(classify(model), { cls: "large", guessed: false }, model);
+  }
+  for (const model of ["claude-haiku-5-5", "anthropic/claude-haiku-5.5",
+    "glm-5.3-fast", "inclusionai/ling-3.1-flash"]) {
+    assert.deepEqual(classify(model), { cls: "small", guessed: false }, model);
+  }
+  // Fast is a naming heuristic, not a measured saving or a new factor band.
+  assert.deepEqual(classify("glm-5.3"), { cls: "large", guessed: false });
+  assert.deepEqual(classify("reflection/beam-mini"), { cls: "small", guessed: false });
+  assert.deepEqual(classify("MiniMax-M3-flash"), { cls: "small", guessed: false });
+  for (const model of ["beam-search", "other/beam", "MiniMax-M4", "MiniMax-H3", "reka-edge-2603"]) {
+    assert.deepEqual(classify(model), { cls: "medium", guessed: true }, model);
+  }
 });
 
 test("frontier flagships", () => {
