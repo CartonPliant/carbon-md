@@ -17,6 +17,14 @@ const edgeCanonicalize = edge.canonicalize;
 const edgeDerive = edge.deriveTrustLevel;
 const edgeVerify = edge.verifySignature;
 
+// Workers expose WebCrypto as a global `crypto`; Node 18 only does behind
+// --experimental-global-webcrypto. Provide the same object (node:crypto's
+// webcrypto is the API Workers implement) so the edge code runs here exactly
+// as it would deployed, instead of failing on "crypto is not defined".
+if (!(globalThis as any).crypto) {
+  (globalThis as any).crypto = (await import("node:crypto")).webcrypto;
+}
+
 const passport = (over: Partial<Passport> = {}): Passport => ({
   carbon_passport: "0.1",
   subject: { id: "did:key:zTest", name: "demo", kind: "project" },
