@@ -80,7 +80,7 @@ Quand il n'y a rien de nouveau :
 | Symptôme | Cause | Correctif |
 |---|---|---|
 | `No usable records found` | champs non reconnus | vérifiez les noms dans [usage-report](/fr/usage-report/) |
-| Des enregistrements comptés en `skipped` | compteurs de tokens non entiers ou négatifs, ou `ts` illisible, antérieur à 2000 ou dans le futur | corrigez le producteur ; voir [Validation](#validation) et [Horodatages](#horodatages) |
+| Des enregistrements comptés en `skipped` | compteurs de tokens non entiers ou négatifs, ou `ts` illisible, antérieur à 2000 ou plus d'un jour dans le futur | corrigez le producteur ; voir [Validation](#validation) et [Horodatages](#horodatages) |
 | Tout est en `medium (guessed)` | chaînes de modèles inconnues du classifieur | ce n'est pas grave — les fourchettes s'élargissent ; envisagez une PR sur la table de facteurs |
 | Les chiffres semblent trop élevés | lectures de cache comptées comme entrée | envoyez-les en `cache_read_tokens` ; elles sont alors exclues |
 | `Another ingest is running, or a stale lock` | une seconde ingestion lancée pendant qu'une autre tournait, ou un verrou laissé par une exécution interrompue | attendez la fin de l'autre ; si aucune ne tourne, supprimez `.carbon-md/sources/ingest.lock` |

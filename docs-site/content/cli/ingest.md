@@ -80,7 +80,7 @@ When there's nothing new:
 | Symptom | Cause | Fix |
 |---|---|---|
 | `No usable records found` | fields not recognised | check names against [usage-report](/usage-report/) |
-| Records counted as `skipped` | non-integer or negative token counts, or a `ts` that is unparseable, before 2000 or in the future | fix the producer; see [Validation](#validation) and [Timestamps](#timestamps) |
+| Records counted as `skipped` | non-integer or negative token counts, or a `ts` that is unparseable, before 2000 or more than a day in the future | fix the producer; see [Validation](#validation) and [Timestamps](#timestamps) |
 | Everything is `medium (guessed)` | model strings unknown to the classifier | fine — ranges widen; consider a PR to the factor table |
 | Numbers look too high | cache reads counted as input | send them as `cache_read_tokens`; they're then excluded |
 | `Another ingest is running, or a stale lock` | a second ingest started while one was running, or a crashed run left its lock | wait for the other run; if none is running, remove `.carbon-md/sources/ingest.lock` |
