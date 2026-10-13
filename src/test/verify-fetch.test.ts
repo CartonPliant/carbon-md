@@ -140,7 +140,7 @@ test("verify <file>: valid JSON that is not a passport exits 2 with a clear mess
 test("verify <file>: a leading UTF-8 BOM is not a parse error (parity with verify <url>)", async (t) => {
   const dir = mkdtempSync(join(tmpdir(), "carbon-md-verify-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const example = readFileSync(join(import.meta.dirname, "..", "..", "docs-site", "static", "examples", "passport.json"), "utf8");
+  const example = readFileSync(new URL("../../docs-site/static/examples/passport.json", import.meta.url), "utf8");
   const plain = join(dir, "plain.json");
   const bom = join(dir, "bom.json");
   writeFileSync(plain, example, "utf8");
