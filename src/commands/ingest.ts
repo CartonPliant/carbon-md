@@ -25,7 +25,7 @@ import { findPolicyPath } from "../core/policy.js";
  *    rather than inflate). Use DELTA temporality; cumulative sums would
  *    double-count and trigger a warning.
  *
- * Validation: token counts must be finite, non-negative numbers (numeric
+ * Validation: token counts must be non-negative safe integers (integer
  * strings like "123" are accepted — OTLP/JSON encodes asInt as a string, and
  * report producers do the same). Timestamps must be ISO 8601 or a Unix epoch,
  * and a plausible instant (2000 → now + 1 day); see normalizeTs. A
@@ -66,17 +66,31 @@ function attrsOf(dp: any): Record<string, string> {
 }
 
 const NUMERIC = /^\s*\d+(\.\d+)?\s*$/;
+const INTEGER = /^\s*\d+\s*$/;
 
 /**
- * A token count as a finite, non-negative number. Absent → 0; anything else
- * (NaN, negative, Infinity, booleans, "abc") → null, so the caller skips the
- * whole record rather than guess at what the producer meant.
+ * A token count as a non-negative safe integer. Absent → 0; anything else
+ * (NaN, negative, Infinity, booleans, "abc", "12.5", 1e308) → null, so the
+ * caller skips the whole record rather than guess at what the producer meant.
+ * Tokens are whole by definition: a fraction means the field holds something
+ * else (a cost, a ratio). Past Number.MAX_SAFE_INTEGER the value can't even
+ * be represented exactly, and 1e308 tokens would book ~5e299 tCO2e.
+ * No tighter cap: a delta OTLP datapoint or a daily report line aggregates
+ * many calls, and no fixed ceiling separates a big org from a bad producer.
  */
 function toCount(v: unknown): number | null {
   if (v === undefined || v === null) return 0;
-  if (typeof v === "number") return Number.isFinite(v) && v >= 0 ? v : null;
-  if (typeof v === "string" && NUMERIC.test(v)) return Number(v);
-  return null;
+  const n = typeof v === "number" ? v : typeof v === "string" && INTEGER.test(v) ? Number(v) : NaN;
+  return Number.isSafeInteger(n) && n >= 0 ? n : null;
+}
+
+/** OTLP timeUnixNano: a non-negative integer (string or number). Not a token
+ *  count — present-day values (~1.8e18) exceed the safe-integer range, and
+ *  sub-ms precision lost in the float is irrelevant to a usage timestamp. */
+function toUnixNano(v: unknown): number | null {
+  if (v === undefined || v === null) return 0;
+  const n = typeof v === "number" ? v : typeof v === "string" && INTEGER.test(v) ? Number(v) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
 /** A numeric epoch's unit is guessed from its magnitude: below 1e12 it is
@@ -204,7 +218,7 @@ function flattenOtlp(obj: any, warnings: Set<string>, invalid: { n: number }): R
           // OTLP's unit is unambiguous (ns), so no epoch-unit heuristic here;
           // 0 is OTLP's "unset" and falls back to ingestion time. Any other
           // value still has to be a plausible instant (see plausibleIso).
-          const ns = toCount(dp.timeUnixNano);
+          const ns = toUnixNano(dp.timeUnixNano);
           const ts = ns ? plausibleIso(ns / 1e6) : undefined;
           if (ns === null || ts === null) {
             invalid.n++;

@@ -119,6 +119,43 @@ test("mapReport: non-numeric or negative token counts are rejected", () => {
   assert.equal(mapReport({ model: "gpt-5.5", tokens_in: true }), null);
 });
 
+test("mapReport: fractional or unsafe-integer token counts are rejected", () => {
+  assert.equal(mapReport({ model: "gpt-5.5", tokens_in: "12.5", tokens_out: 1 }), null);
+  assert.equal(mapReport({ model: "gpt-5.5", tokens_in: 0.4, tokens_out: 1 }), null);
+  assert.equal(mapReport({ model: "gpt-5.5", tokens_in: 1e308, tokens_out: 1 }), null);
+  assert.equal(mapReport({ model: "gpt-5.5", tokens_in: "99999999999999999999", tokens_out: 1 }), null);
+  assert.equal(mapReport({ model: "gpt-5.5", tokens_in: 10, cache_read_tokens: 2.5 }), null);
+  // an integral double is still an integer
+  assert.equal(mapReport({ model: "gpt-5.5", tokens_in: 12.0, tokens_out: 1 })?.tokensIn, 12);
+});
+
+test("ingest: an OTLP datapoint with a fractional value is skipped, a real ns time is kept", async () => {
+  const cwd = workDir();
+  const dp = (value: unknown) => ({
+    attributes: [
+      { key: "model", value: { stringValue: "claude-sonnet-4" } },
+      { key: "type", value: { stringValue: "input" } },
+    ],
+    asDouble: value,
+    // well beyond Number.MAX_SAFE_INTEGER: a timestamp, not a count
+    timeUnixNano: "1760000000123456789",
+  });
+  const otlp = {
+    resourceMetrics: [{ scopeMetrics: [{ metrics: [{
+      name: "claude_code.token.usage",
+      sum: { aggregationTemporality: 1, dataPoints: [dp(500), dp(0.5)] },
+    }] }] }],
+  };
+  const file = join(cwd, "otel.jsonl");
+  writeFileSync(file, line(otlp) + "\n");
+  assert.equal(await cmdIngest(cwd, [file]), 0);
+  const events = usage(cwd);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].tokens_in, 500);
+  assert.equal(events[0].ts, "2025-10-09T08:53:20.123Z");
+  rmSync(cwd, { recursive: true, force: true });
+});
+
 test("mapReport: numeric strings are accepted as counts", () => {
   const rec = mapReport({ model: "gpt-5.5", tokens_in: "123", tokens_out: 7 });
   assert.ok(rec);
