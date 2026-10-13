@@ -173,13 +173,17 @@ function flatPages() {
   return nav.sections.flatMap((s) => s.pages);
 }
 
-function layout({ title, description, bodyHtml, toc, slug }) {
+function layout({ title, description, bodyHtml, toc, slug, notFound = false }) {
   const pages = flatPages();
-  const idx = pages.findIndex((p) => p.slug === slug);
+  const idx = notFound ? -1 : pages.findIndex((p) => p.slug === slug);
   const prev = idx > 0 ? pages[idx - 1] : null;
   const next = idx >= 0 && idx < pages.length - 1 ? pages[idx + 1] : null;
   const canonical = `${nav.site.baseUrl}${href(slug)}`;
-  const full = slug === "" ? nav.site.title : `${title} — ${nav.site.title}`;
+  const full = slug === "" && !notFound ? nav.site.title : `${title} — ${nav.site.title}`;
+  // A 404 is served at whatever URL was missed: no canonical, not indexable.
+  const urlMeta = notFound
+    ? `<meta name="robots" content="noindex">`
+    : `<link rel="canonical" href="${canonical}">\n<meta property="og:url" content="${canonical}">`;
 
   const tocHtml = toc.filter((t) => t.level === 2).length
     ? `<aside class="toc"><div class="toc-title">On this page</div><ul>${toc
@@ -194,10 +198,9 @@ function layout({ title, description, bodyHtml, toc, slug }) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(full)}</title>
 <meta name="description" content="${esc(description || "Documentation for carbon.md — the open standard for carbon-governed AI agents.")}">
-<link rel="canonical" href="${canonical}">
+${urlMeta}
 <meta property="og:title" content="${esc(full)}">
 <meta property="og:description" content="${esc(description || "Documentation for carbon.md")}">
-<meta property="og:url" content="${canonical}">
 <meta name="theme-color" content="#0A0C0B">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230A0C0B'/%3E%3Cg stroke='%234ADE80' stroke-width='2.4' stroke-linecap='round'%3E%3Cline x1='9' y1='11' x2='16' y2='11'/%3E%3Cline x1='9' y1='16' x2='23' y2='16'/%3E%3Cline x1='9' y1='21' x2='19' y2='21'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -282,6 +285,19 @@ for (const section of nav.sections) {
     );
     count++;
   }
+}
+
+// 404.html — without a top-level one, Cloudflare Pages assumes a single-page
+// app and answers every unknown path (fake /v1/* routes included) with
+// index.html and a 200. With it, misses get a real 404. Pages serves the
+// nearest 404.html up the tree, so dist/fr/404.html covers /fr/*.
+{
+  const notFoundMd = LOCALE === "fr"
+    ? `# Page introuvable\n\nIl n'y a pas de page à cette adresse. Elle a peut-être été déplacée, ou l'URL contient une faute de frappe.\n\n- [Accueil de la documentation](${PREFIX}/)\n- [Démarrage rapide](${PREFIX}/quickstart/)\n- [API d'attestation](${PREFIX}/api/) — les endpoints sont \`/v1/verify\` et \`/v1/badge\`\n`
+    : `# Page not found\n\nThere is no page at this address. It may have moved, or the URL may have a typo.\n\n- [Docs home](${PREFIX}/)\n- [Quickstart](${PREFIX}/quickstart/)\n- [Attestation API](${PREFIX}/api/) — the endpoints are \`/v1/verify\` and \`/v1/badge\`\n`;
+  const { html } = markdown(notFoundMd);
+  const title = LOCALE === "fr" ? "Page introuvable" : "Page not found";
+  writeFileSync(join(OUT, "404.html"), layout({ title, description: title, bodyHtml: html, toc: [], slug: "", notFound: true }), "utf8");
 }
 
 // static/ is copied verbatim into dist — fixtures the docs need to be checkable
