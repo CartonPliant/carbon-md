@@ -72,7 +72,7 @@ npx carbon-md verify https://your-ledger/passport.json --min L2
 
 The public key is embedded in the subject's `did:key`, so steps 1–3 work with **no network at all**. `--offline` therefore still verifies a passport; it simply cannot confirm anchors or certification.
 
-**The signer must be the subject.** A v0.1 passport is self-issued: the key in `proof.verification_method` must be the same `did:key` as `subject.id` and `issuer`. Otherwise the signature is reported invalid — `signed by did:key:A but subject is did:key:B` — however sound the cryptography, because certification is looked up by subject and nobody may sign in someone else's name.
+**The signer must be the subject.** A v0.1 passport is self-issued: the key in `proof.verification_method` must be the same `did:key` as `subject.id` and `issuer`, written as that `did:key` followed by `#` and its own multibase key (`did:key:z6Mk…#z6Mk…`). Otherwise the signature is reported invalid — `signed by did:key:A but subject is did:key:B` — however sound the cryptography, because certification is looked up by subject and nobody may sign in someone else's name.
 
 ## Related
 
