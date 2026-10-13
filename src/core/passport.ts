@@ -87,11 +87,46 @@ export function sign(p: Passport, key: KeyFile): Passport {
   };
 }
 
+/**
+ * Bind the signing key to the identity the document speaks for.
+ *
+ * A signature on its own only proves that *someone* signed. Everything the
+ * verifier grants afterwards is keyed on `subject.id` — L3 in particular is a
+ * registry lookup by subject — so if any key could sign for any subject, an
+ * attacker could copy a certified subject's DID into a document, sign it with
+ * their own key, and inherit that certification. In v0.1 a passport is
+ * self-issued: the generator always writes subject.id = issuer = the signing
+ * DID, so the verifier requires exactly that and nothing looser.
+ *
+ * The verification method's fragment is checked too: for did:key it is the
+ * key's own multibase value (`did:key:z6Mk…#z6Mk…`), so a mismatch means the
+ * document is pointing at a key it does not name.
+ */
+export function checkSignerBinding(p: Passport): { valid: true } | { valid: false; reason: string } {
+  const vm = String(p.proof?.verification_method ?? "");
+  const hash = vm.indexOf("#");
+  const did = hash < 0 ? vm : vm.slice(0, hash);
+  const fragment = hash < 0 ? "" : vm.slice(hash + 1);
+  if (!did.startsWith("did:key:")) return { valid: false, reason: `verification method is not a did:key: ${vm}` };
+  if (fragment !== did.slice("did:key:".length)) {
+    return { valid: false, reason: `verification method fragment #${fragment} does not match ${did}` };
+  }
+  const subject = p.subject?.id;
+  if (subject !== did) return { valid: false, reason: `signed by ${did} but subject is ${subject ?? "missing"}` };
+  if (p.issuer !== did) return { valid: false, reason: `signed by ${did} but issuer is ${p.issuer ?? "missing"}` };
+  return { valid: true };
+}
+
 export function verifySignature(p: Passport): { valid: boolean; reason?: string } {
   if (!p.proof) return { valid: false, reason: "no proof on the document" };
   if (p.proof.type !== "eddsa-jcs-2022") return { valid: false, reason: `unsupported proof type ${p.proof.type}` };
+  if (typeof p.proof.signature !== "string" || !p.proof.signature.startsWith("z")) {
+    return { valid: false, reason: "signature is not multibase base58btc" };
+  }
+  // Before the cryptography: a perfect signature by the wrong key is still a forgery.
+  const binding = checkSignerBinding(p);
+  if (!binding.valid) return binding;
   const did = p.proof.verification_method.split("#")[0];
-  if (!p.proof.signature.startsWith("z")) return { valid: false, reason: "signature is not multibase base58btc" };
   try {
     const ok = verifyBytes(did, signingBytes(p), base58decode(p.proof.signature.slice(1)));
     return ok ? { valid: true } : { valid: false, reason: "signature does not match the document" };

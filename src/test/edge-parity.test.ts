@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createKey } from "../core/keys.js";
@@ -56,7 +56,7 @@ test("edge port verifies the same signatures, and rejects the same tampering", a
   const dir = mkdtempSync(join(tmpdir(), "carbon-md-parity-"));
   try {
     const key = createKey(dir);
-    const signed = sign(passport({ subject: { id: key.did, name: "demo", kind: "project" } }), key);
+    const signed = sign(passport({ subject: { id: key.did, name: "demo", kind: "project" }, issuer: key.did }), key);
     assert.equal((await edgeVerify(signed)).valid, verifySignature(signed).valid);
     assert.equal((await edgeVerify(signed)).valid, true);
 
@@ -66,6 +66,46 @@ test("edge port verifies the same signatures, and rejects the same tampering", a
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("edge port rejects a signer that is not the subject or issuer, with the same reason", async () => {
+  // The forgery that matters: a certified subject's DID, signed by someone
+  // else's key. Both sides must refuse it, or the API would hand out the
+  // victim's L3 while the CLI does not.
+  const dir = mkdtempSync(join(tmpdir(), "carbon-md-binding-"));
+  try {
+    const victim = createKey(join(dir, "victim"));
+    const attacker = createKey(join(dir, "attacker"));
+    const forgedSubject = sign(
+      passport({ subject: { id: victim.did, name: "victim", kind: "project" }, issuer: victim.did }),
+      attacker
+    );
+    const forgedIssuer = sign(
+      passport({ subject: { id: attacker.did, name: "demo", kind: "project" }, issuer: victim.did }),
+      attacker
+    );
+    const signed = sign(passport({ subject: { id: attacker.did, name: "demo", kind: "project" }, issuer: attacker.did }), attacker);
+    const wrongFragment = { ...signed, proof: { ...signed.proof!, verification_method: `${attacker.did}#z6MkNotTheKey` } };
+
+    for (const doc of [forgedSubject, forgedIssuer, wrongFragment]) {
+      const cli = verifySignature(doc as Passport);
+      const edgeResult = await edgeVerify(doc);
+      assert.equal(cli.valid, false);
+      assert.deepEqual(edgeResult, cli);
+    }
+    assert.match(verifySignature(forgedSubject).reason ?? "", /but subject is/);
+    assert.match(verifySignature(forgedIssuer).reason ?? "", /but issuer is/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the published example passport still verifies on both sides", async () => {
+  // The docs link to this file as the thing to try first; a verifier rule that
+  // rejected it would break the very first impression.
+  const example = JSON.parse(readFileSync(new URL("../../docs-site/static/examples/passport.json", import.meta.url), "utf8"));
+  assert.deepEqual(verifySignature(example), { valid: true });
+  assert.deepEqual(await edgeVerify(example), { valid: true });
 });
 
 test("edge port derives the same trust level, warnings included", () => {

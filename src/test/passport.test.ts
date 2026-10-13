@@ -45,7 +45,7 @@ test("a signed passport verifies; any edit breaks the signature", () => {
   const dir = tmp();
   try {
     const key = createKey(dir);
-    const signed = sign(basePassport({ subject: { id: key.did, name: "demo", kind: "project" } }), key);
+    const signed = sign(basePassport({ subject: { id: key.did, name: "demo", kind: "project" }, issuer: key.did }), key);
     assert.equal(verifySignature(signed).valid, true);
 
     const tampered = { ...signed, contribution: { ...signed.contribution, credited_tonnes: 99, met: true } };
@@ -92,4 +92,59 @@ test("L2 requires resolved anchors that satisfy the removal policy", () => {
   const r = deriveTrustLevel(withAvoidance, { signatureValid: true, anchorsResolved: true });
   assert.equal(r.removalOk, false);
   assert.equal(r.level, "L1");
+});
+
+// ---------------------------------------------------------------------------
+// Signer binding. A valid signature only proves *someone* signed; L3 is then
+// looked up by subject.id. Without binding the signer to the subject, anyone
+// could put a certified subject's DID in the document, sign with their own
+// key, and inherit that subject's certification.
+// ---------------------------------------------------------------------------
+
+test("a passport signed by a key other than its subject is invalid", () => {
+  const dir = tmp();
+  try {
+    const victim = createKey(join(dir, "victim"));
+    const attacker = createKey(join(dir, "attacker"));
+    const forged = sign(
+      basePassport({ subject: { id: victim.did, name: "victim", kind: "project" }, issuer: victim.did }),
+      attacker
+    );
+    const r = verifySignature(forged);
+    assert.equal(r.valid, false);
+    assert.match(r.reason ?? "", new RegExp(`signed by ${attacker.did} but subject is ${victim.did}`));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a passport whose issuer is not the signer is invalid", () => {
+  const dir = tmp();
+  try {
+    const key = createKey(join(dir, "self"));
+    const other = createKey(join(dir, "other"));
+    const forged = sign(
+      basePassport({ subject: { id: key.did, name: "demo", kind: "project" }, issuer: other.did }),
+      key
+    );
+    const r = verifySignature(forged);
+    assert.equal(r.valid, false);
+    assert.match(r.reason ?? "", new RegExp(`signed by ${key.did} but issuer is ${other.did}`));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a verification method whose fragment is not the did:key's own key is invalid", () => {
+  const dir = tmp();
+  try {
+    const key = createKey(dir);
+    const signed = sign(basePassport({ subject: { id: key.did, name: "demo", kind: "project" }, issuer: key.did }), key);
+    const wrongFragment = { ...signed, proof: { ...signed.proof!, verification_method: `${key.did}#z6MkNotTheKey` } };
+    const r = verifySignature(wrongFragment);
+    assert.equal(r.valid, false);
+    assert.match(r.reason ?? "", /fragment/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

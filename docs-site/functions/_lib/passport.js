@@ -45,12 +45,40 @@ export function canonicalize(value) {
   return "{" + entries.map(([k, v]) => JSON.stringify(k) + ":" + canonicalize(v)).join(",") + "}";
 }
 
+/**
+ * Bind the signing key to the identity the document speaks for — mirrors
+ * checkSignerBinding in core/passport.ts, reasons included.
+ *
+ * A signature only proves *someone* signed, while L3 is looked up by
+ * subject.id: without this, any key could sign for a certified subject's DID
+ * and inherit its certification. v0.1 passports are self-issued, so the
+ * signing DID must equal both subject.id and issuer, and the did:key
+ * fragment must be the key's own multibase value.
+ */
+export function checkSignerBinding(p) {
+  const vm = String((p && p.proof && p.proof.verification_method) || "");
+  const hash = vm.indexOf("#");
+  const did = hash < 0 ? vm : vm.slice(0, hash);
+  const fragment = hash < 0 ? "" : vm.slice(hash + 1);
+  if (!did.startsWith("did:key:")) return { valid: false, reason: "verification method is not a did:key: " + vm };
+  if (fragment !== did.slice("did:key:".length)) {
+    return { valid: false, reason: "verification method fragment #" + fragment + " does not match " + did };
+  }
+  const subject = p.subject && p.subject.id;
+  if (subject !== did) return { valid: false, reason: "signed by " + did + " but subject is " + (subject ?? "missing") };
+  if (p.issuer !== did) return { valid: false, reason: "signed by " + did + " but issuer is " + (p.issuer ?? "missing") };
+  return { valid: true };
+}
+
 export async function verifySignature(p) {
   if (!p || !p.proof) return { valid: false, reason: "no proof on the document" };
   if (p.proof.type !== "eddsa-jcs-2022") return { valid: false, reason: "unsupported proof type " + p.proof.type };
   if (typeof p.proof.signature !== "string" || !p.proof.signature.startsWith("z")) {
     return { valid: false, reason: "signature is not multibase base58btc" };
   }
+  // Before the cryptography: a perfect signature by the wrong key is still a forgery.
+  const binding = checkSignerBinding(p);
+  if (!binding.valid) return binding;
   try {
     const did = String(p.proof.verification_method || "").split("#")[0];
     const raw = didToPublicKey(did);
