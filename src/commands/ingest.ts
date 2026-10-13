@@ -39,8 +39,10 @@ import { findPolicyPath } from "../core/policy.js";
  * re-ingesting a file (or the same stdin) adds nothing, and re-ingesting a
  * file that has grown adds only the new records. Records without a ts are
  * the exception: they can't be told apart from new usage, so they are
- * always ingested (see the loop in cmdIngest). See lineKeys for why the key
- * is the raw line, not the produced event.
+ * always ingested (see the loop in ingestLines). See lineKeys for why the key
+ * is the raw line, not the produced event. A run holds
+ * .carbon-md/sources/ingest.lock from loading the state to committing it,
+ * so overlapping runs can't overwrite each other's keys (see acquireLock).
  */
 
 interface Rec {
@@ -307,6 +309,51 @@ function statePath(cwd: string): string {
   return join(cwd, LEDGER_DIR, "sources", "ingest.json");
 }
 
+function lockPath(cwd: string): string {
+  return join(cwd, LEDGER_DIR, "sources", "ingest.lock");
+}
+
+/**
+ * Take the ingest lock, or return why not. A run loads the whole state at
+ * the start and writes a full copy at the end, so two overlapping runs
+ * would each drop the other's keys (and re-ingest those records next
+ * time). The lock is created with O_EXCL ("wx"): exactly one run gets it.
+ * No waiting and no stale-lock guessing: a run that finds it fails fast,
+ * and a lock left by a crash is for the user to remove — the pid in it
+ * says which run took it.
+ */
+function acquireLock(cwd: string): { error: string } | undefined {
+  const p = lockPath(cwd);
+  try {
+    mkdirSync(join(cwd, LEDGER_DIR, "sources"), { recursive: true });
+  } catch (e) {
+    return { error: `Can't create ingest lock ${p} (${errMsg(e)})` };
+  }
+  try {
+    writeFileSync(p, `${process.pid}\n`, { flag: "wx" });
+    return undefined;
+  } catch (e: any) {
+    if (e?.code !== "EEXIST") return { error: `Can't create ingest lock ${p} (${errMsg(e)})` };
+    let holder = "";
+    try {
+      const pid = readFileSync(p, "utf8").trim();
+      if (pid) holder = ` (taken by pid ${pid})`;
+    } catch {}
+    return {
+      error:
+        `Another ingest is running, or a stale lock from a crashed run${holder} — ` +
+        `remove ${p} if no ingest is running`,
+    };
+  }
+}
+
+function releaseLock(cwd: string): void {
+  // Best effort: a lock we can't remove is reported by the next run.
+  try {
+    rmSync(lockPath(cwd), { force: true });
+  } catch {}
+}
+
 /** "1 record" / "N records". */
 function records(n: number): string {
   return `${n} record${n === 1 ? "" : "s"}`;
@@ -399,16 +446,32 @@ export async function cmdIngest(cwd: string, argv: string[]): Promise<number> {
 
   const raw = fileArg === "-" ? readFileSync(0, "utf8") : readFileSync(fileArg, "utf8");
 
-  const recs: Rec[] = [];
-  const warnings = new Set<string>();
-  let skipped = 0;
-  const invalidDatapoints = { n: 0 };
-
   const lines = raw
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
   const keys = lineKeys(lines);
+
+  const lockErr = acquireLock(cwd);
+  if (lockErr) {
+    console.error(`✖ ${lockErr.error}. Nothing was written.`);
+    return 1;
+  }
+  try {
+    return ingestLines(cwd, lines, keys, source);
+  } finally {
+    releaseLock(cwd);
+  }
+}
+
+/** The run proper, under the ingest lock: dedup against the state, then
+ *  commit. Returns the exit code. */
+function ingestLines(cwd: string, lines: string[], keys: string[], source: string): number {
+  const recs: Rec[] = [];
+  const warnings = new Set<string>();
+  let skipped = 0;
+  const invalidDatapoints = { n: 0 };
+
   const state = loadState(cwd);
   if ("error" in state) {
     console.error(

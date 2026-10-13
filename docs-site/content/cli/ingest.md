@@ -60,6 +60,8 @@ A record is a usage-report line, or one datapoint of an OTLP line — each is re
 
 If `ingest.json` exists but can't be read or isn't a valid state, the run **fails without writing anything**: ignoring it would ingest everything again. Fix or restore the file — deleting it re-ingests (double-counts) everything already in the ledger. If the state directory isn't writable, the run also stops before touching the ledger.
 
+Only one ingest runs at a time per project: a run holds `.carbon-md/sources/ingest.lock` while it works, and a second run started meanwhile **fails immediately without writing anything** — otherwise each would overwrite the other's state. If no ingest is running, the lock was left by a crashed run (it holds that run's pid): remove it and run again.
+
 ## Output
 
 ```
@@ -81,4 +83,5 @@ When there's nothing new:
 | Records counted as `skipped` | non-integer or negative token counts, or a `ts` that is unparseable, before 2000 or in the future | fix the producer; see [Validation](#validation) and [Timestamps](#timestamps) |
 | Everything is `medium (guessed)` | model strings unknown to the classifier | fine — ranges widen; consider a PR to the factor table |
 | Numbers look too high | cache reads counted as input | send them as `cache_read_tokens`; they're then excluded |
+| `Another ingest is running, or a stale lock` | a second ingest started while one was running, or a crashed run left its lock | wait for the other run; if none is running, remove `.carbon-md/sources/ingest.lock` |
 | Duplicate-looking totals | ingesting the same data through two paths | use one source per stream (`sync` **or** `ingest`) |

@@ -60,6 +60,8 @@ Un enregistrement est une ligne usage-report, ou un point de données d'une lign
 
 Si `ingest.json` existe mais est illisible ou n'est pas un état valide, la commande **échoue sans rien écrire** : l'ignorer ré-ingérerait tout. Corrigez ou restaurez le fichier — le supprimer ré-ingère (compte deux fois) tout ce qui est déjà dans le registre. Si le dossier d'état n'est pas accessible en écriture, la commande s'arrête aussi avant de toucher au registre.
 
+Une seule ingestion tourne à la fois par projet : pendant son exécution, la commande détient `.carbon-md/sources/ingest.lock`, et une seconde ingestion lancée entre-temps **échoue immédiatement sans rien écrire** — sinon chacune écraserait l'état de l'autre. Si aucune ingestion n'est en cours, le verrou a été laissé par une exécution interrompue (il contient son pid) : supprimez-le et relancez.
+
 ## Sortie
 
 ```
@@ -81,4 +83,5 @@ Quand il n'y a rien de nouveau :
 | Des enregistrements comptés en `skipped` | compteurs de tokens non entiers ou négatifs, ou `ts` illisible, antérieur à 2000 ou dans le futur | corrigez le producteur ; voir [Validation](#validation) et [Horodatages](#horodatages) |
 | Tout est en `medium (guessed)` | chaînes de modèles inconnues du classifieur | ce n'est pas grave — les fourchettes s'élargissent ; envisagez une PR sur la table de facteurs |
 | Les chiffres semblent trop élevés | lectures de cache comptées comme entrée | envoyez-les en `cache_read_tokens` ; elles sont alors exclues |
+| `Another ingest is running, or a stale lock` | une seconde ingestion lancée pendant qu'une autre tournait, ou un verrou laissé par une exécution interrompue | attendez la fin de l'autre ; si aucune ne tourne, supprimez `.carbon-md/sources/ingest.lock` |
 | Des totaux qui semblent dupliqués | mêmes données ingérées par deux chemins | une seule source par flux (`sync` **ou** `ingest`) |

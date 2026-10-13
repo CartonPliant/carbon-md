@@ -361,6 +361,7 @@ test("ingest: a corrupt or wrong-shape state file fails the run and writes nothi
     assert.match(err, /nothing was written/i);
     assert.equal(usage(cwd).length, 0);
     assert.equal(readFileSync(state, "utf8"), bad);
+    assert.ok(!existsSync(join(sources, "ingest.lock")), "lock released on failure");
   }
 });
 
@@ -513,4 +514,49 @@ test("ingest: a mixed OTLP line (timed + untimed + invalid) ingested three times
   assert.equal(events.filter((e) => e.tokens_out === 10).length, 1, "timed output once");
   assert.equal(events.filter((e) => e.tokens_in === 7).length, 3, "untimed every run");
   assert.ok(events.every((e) => e.tokens_out !== 5 && e.tokens_out >= 0), "invalid never written");
+});
+
+test("ingest: a held lock fails the run fast and writes nothing", async (t) => {
+  const cwd = workDir(t);
+  const file = join(cwd, "usage.jsonl");
+  writeFileSync(file, line({ ts: "2026-10-01T10:00:00Z", model: "gpt-5.5", tokens_in: 10, tokens_out: 1 }) + "\n");
+  assert.equal(await cmdIngest(cwd, [file]), 0);
+  const sources = join(cwd, ".carbon-md", "sources");
+  const state = join(sources, "ingest.json");
+  const lock = join(sources, "ingest.lock");
+  assert.ok(!existsSync(lock), "a normal run leaves no lock behind");
+  const stateBefore = readFileSync(state, "utf8");
+
+  appendFileSync(file, line({ ts: "2026-10-01T11:00:00Z", model: "gpt-5.5", tokens_in: 20, tokens_out: 2 }) + "\n");
+  writeFileSync(lock, "4242\n");
+  const { result, err } = await captureStderr(() => cmdIngest(cwd, [file]));
+  assert.equal(result, 1);
+  assert.match(err, /another ingest is running/i);
+  assert.match(err, /stale lock/i);
+  assert.match(err, /ingest\.lock/);
+  assert.match(err, /4242/);
+  assert.equal(usage(cwd).length, 1);
+  assert.equal(readFileSync(state, "utf8"), stateBefore);
+  assert.equal(readFileSync(lock, "utf8"), "4242\n", "someone else's lock is left alone");
+
+  rmSync(lock);
+  assert.equal(await cmdIngest(cwd, [file]), 0);
+  assert.equal(usage(cwd).length, 2);
+  assert.ok(!existsSync(lock));
+});
+
+test("ingest: a run whose state commit fails still releases the lock", async (t) => {
+  const cwd = workDir(t);
+  const file = join(cwd, "usage.jsonl");
+  writeFileSync(file, line({ ts: "2026-10-01T10:00:00Z", model: "gpt-5.5", tokens_in: 10, tokens_out: 1 }) + "\n");
+  const orig = _io.renameSync;
+  _io.renameSync = () => {
+    throw new Error("boom");
+  };
+  try {
+    await captureStderr(() => cmdIngest(cwd, [file]));
+  } finally {
+    _io.renameSync = orig;
+  }
+  assert.ok(!existsSync(join(cwd, ".carbon-md", "sources", "ingest.lock")));
 });
