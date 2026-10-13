@@ -52,6 +52,11 @@ test("docs build: the agent contract is published as plain-text files", () => {
   assert.doesNotMatch(headers, /^\/agent$/m);
 });
 
+test("/agent answers GET (and HEAD) only, so Pages returns 405 for other methods", () => {
+  assert.equal(typeof agentFn.onRequestGet, "function");
+  assert.equal(agentFn.onRequest, undefined);
+});
+
 test("/agent serves the plain-text contract with a 200, not HTML and not a redirect", async () => {
   const seen: string[] = [];
   const env = {
@@ -66,7 +71,7 @@ test("/agent serves the plain-text contract with a 200, not HTML and not a redir
       },
     },
   };
-  const res: Response = await agentFn.onRequest({ request: new Request("https://docs.carbonmd.dev/agent"), env });
+  const res: Response = await agentFn.onRequestGet({ request: new Request("https://docs.carbonmd.dev/agent"), env });
   assert.equal(res.status, 200);
   assert.equal(res.headers.get("content-type"), "text/plain; charset=utf-8");
   assert.equal(await res.text(), "# carbon.md — agent install contract");

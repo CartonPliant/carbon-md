@@ -6,8 +6,9 @@
  * A _redirects rewrite would depend on how the asset server and Functions
  * interact; this answers directly with the same bytes as /agent.txt, a 200
  * and an explicit content type — what `curl` (no -L) and agents expect.
+ * GET only (Pages routes HEAD here too); any other method gets a 405.
  */
-export async function onRequest(context) {
+export async function onRequestGet(context) {
   const { request, env } = context;
   const asset = await env.ASSETS.fetch(new URL("/agent.txt", request.url));
   if (!asset.ok) return asset;
