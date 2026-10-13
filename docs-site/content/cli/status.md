@@ -39,4 +39,4 @@ carbon.md — my-project
 
 - `status` is read-only. It never writes to the ledger or contacts the network.
 - If it reports nothing, you haven't captured usage yet — see [`sync`](/cli/sync/) or [`ingest`](/cli/ingest/).
-- Monthly figures follow calendar months in local time; contributions are prepared monthly by default.
+- Monthly figures follow calendar months in UTC, like the ledger timestamps; contributions are prepared monthly by default.

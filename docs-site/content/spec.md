@@ -69,7 +69,7 @@ Under `removal-only`, only removal discharges the target: a mixed or unspecified
 
 ### `policy.monthly_budget_max`
 
-`{ amount, currency }`. A hard ceiling on contributions per calendar month. The CLI refuses an order that would push month-to-date spending past it.
+`{ amount, currency }`. A hard ceiling on contributions per calendar month (UTC). The CLI refuses an order that would push month-to-date spending past it.
 
 ### `policy.approval_above`
 

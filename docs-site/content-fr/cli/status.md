@@ -39,4 +39,4 @@ carbon.md — my-project
 
 - `status` est en lecture seule. Il n'écrit jamais dans le registre et ne contacte pas le réseau.
 - S'il n'affiche rien, c'est qu'aucun usage n'a encore été capturé — voir [`sync`](/fr/cli/sync/) ou [`ingest`](/fr/cli/ingest/).
-- Les chiffres mensuels suivent les mois calendaires en heure locale ; les contributions sont préparées mensuellement par défaut.
+- Les chiffres mensuels suivent les mois calendaires en UTC, comme les horodatages du registre ; les contributions sont préparées mensuellement par défaut.

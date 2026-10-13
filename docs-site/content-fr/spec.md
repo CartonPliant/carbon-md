@@ -69,7 +69,7 @@ Sous `removal-only`, seul le removal acquitte la cible : une tonne mixte ou non 
 
 ### `policy.monthly_budget_max`
 
-`{ amount, currency }`. Un plafond strict sur les contributions par mois calendaire. La CLI refuse un ordre qui ferait dépasser ce plafond au cumul du mois.
+`{ amount, currency }`. Un plafond strict sur les contributions par mois calendaire (UTC). La CLI refuse un ordre qui ferait dépasser ce plafond au cumul du mois.
 
 ### `policy.approval_above`
 

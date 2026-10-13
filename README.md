@@ -69,7 +69,7 @@ carbon removal per the policy above.
 | `carbon_md` | MUST | Spec version this file targets (`"0.1"`) |
 | `policy.contribution_target` | MUST | Multiplier of estimated emissions to match with contributions. `1.0` = 100%, `1.1` = 110% |
 | `policy.portfolio` | SHOULD | `removal-only`, `removal-weighted` (default), `balanced`, or `custom`. Determines default price assumptions and rail suggestions. Under `removal-only`, `contribute --execute` refuses any credit not classified as removal — avoidance is rejected before a quote is even requested |
-| `policy.monthly_budget_max` | MUST | Hard cap. No tool or agent may initiate contributions beyond this in a calendar month |
+| `policy.monthly_budget_max` | MUST | Hard cap. No tool or agent may initiate contributions beyond this in a calendar month (UTC) |
 | `policy.approval_above` | MUST | Orders above this amount require explicit human confirmation. Set to `{ amount: 0 }` to require approval for everything |
 | `reporting.mode` | SHOULD | `local` (ledger stays in `.carbon-md/`) or `hosted` (also pushed to a ledger service) |
 | `reporting.public_ledger` | SHOULD | Whether aggregate footprint + receipts may be published |
