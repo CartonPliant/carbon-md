@@ -75,3 +75,28 @@ test("spentSince: a contribution with an unparseable ts counts toward this month
   const events = [contribution("2026-10-05T00:00:00Z", 3), contribution("garbage", 40)];
   assert.equal(spentSince(events, since), 43);
 });
+
+test("spentSince: a contribution with a missing or non-numeric cost blocks spending (fail closed)", () => {
+  const since = new Date("2026-10-01T00:00:00Z");
+  const ok = contribution("2026-10-05T00:00:00Z", 3);
+  const bad = (cost: unknown) => ({ ...contribution("2026-10-06T00:00:00Z", 0), cost }) as ContributionEvent;
+  // "04" used to string-concatenate to "304"; undefined/null used to give NaN or be ignored.
+  for (const cost of [undefined, null, "04", "abc", NaN, Infinity, {}]) {
+    assert.equal(spentSince([ok, bad(cost)], since), Infinity, `cost ${JSON.stringify(cost)}`);
+  }
+  const { cost: _drop, ...noCost } = contribution("2026-10-06T00:00:00Z", 1);
+  assert.equal(spentSince([ok, noCost as ContributionEvent], since), Infinity);
+});
+
+test("spentSince: a negative cost cannot lower this month's spend", () => {
+  const since = new Date("2026-10-01T00:00:00Z");
+  assert.equal(spentSince([contribution("2026-10-05T00:00:00Z", 3), contribution("2026-10-06T00:00:00Z", -50)], since), Infinity);
+});
+
+test("spentSince: a corrupt cost in an unparseable-ts row also blocks; one in an earlier month does not", () => {
+  const since = new Date("2026-10-01T00:00:00Z");
+  const bad = { ...contribution("garbage", 0), cost: "x" } as unknown as ContributionEvent;
+  assert.equal(spentSince([bad], since), Infinity);
+  const old = { ...contribution("2026-09-01T00:00:00Z", 0), cost: "x" } as unknown as ContributionEvent;
+  assert.equal(spentSince([contribution("2026-10-05T00:00:00Z", 3), old], since), 3);
+});

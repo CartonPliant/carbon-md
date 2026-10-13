@@ -144,15 +144,25 @@ export function inWindow(ts: string, since?: Date): boolean {
  * Unlike reporting, a cap must fail closed: a contribution whose `ts` does not
  * parse counts as spent in the current window. Ignoring it could only let a
  * bad row raise the effective cap; counting it can only make the cap
- * stricter, and a human can fix the row. Sums `cost` across currencies as-is.
+ * stricter, and a human can fix the row.
+ *
+ * The same goes for `cost`. A missing or non-numeric cost used to turn the sum
+ * into NaN (and `NaN > cap` is false) or string-concatenate ("0" + "4" + "03"),
+ * and a negative cost lowered the month's spend — each one a way past the cap.
+ * Any such row that is (or may be) in the window makes the spend Infinity, so
+ * every order stops until a human fixes the row. Sums `cost` across
+ * currencies as-is.
  */
 export function spentSince(events: LedgerEvent[], since: Date): number {
-  return events
-    .filter(
-      (e): e is ContributionEvent =>
-        e.type === "contribution" && (inWindow(e.ts, since) || Number.isNaN(Date.parse(e.ts)))
-    )
-    .reduce((s, c) => s + c.cost, 0);
+  let spent = 0;
+  for (const e of events) {
+    if (e.type !== "contribution") continue;
+    if (!inWindow(e.ts, since) && !Number.isNaN(Date.parse(e.ts))) continue;
+    const cost: unknown = e.cost;
+    if (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0) return Infinity;
+    spent += cost;
+  }
+  return spent;
 }
 
 export function aggregate(events: LedgerEvent[], since?: Date): Totals {

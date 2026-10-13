@@ -65,7 +65,7 @@ Enregistrer ce qui s'est réellement passé est toujours permis — le dissimule
 Deux garde-fous indépendants, tous deux obligatoires :
 
 1. **`approval_above`** — un ordre plus coûteux est signalé comme nécessitant une confirmation humaine. Chaque `--execute` s'arrête sur un `retire` à taper avant de signer quoi que ce soit : rien n'est dépensé sans un humain dans la boucle.
-2. **`monthly_budget_max`** — les contributions du mois en cours (mois calendaire UTC) plus cet ordre doivent rester sous le plafond.
+2. **`monthly_budget_max`** — les contributions du mois en cours (mois calendaire UTC) plus cet ordre doivent rester sous le plafond. Une ligne de contribution du registre dont le coût est absent, non numérique ou négatif bloque toute dépense jusqu'à ce qu'elle soit corrigée : le plafond n'est jamais vérifié contre une dépense impossible à additionner.
 
 Un troisième garde-fou, physique celui-là, s'applique sur le rail on-chain : le [wallet](/fr/cli/wallet/) est prépayé, donc un agent ne peut pas dépenser plus que ce qui y a été déposé — quoi que dise n'importe quelle configuration.
 

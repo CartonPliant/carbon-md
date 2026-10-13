@@ -26,6 +26,35 @@ const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`;
 const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
 
+/**
+ * The monthly_budget_max gate, as the lines to print when it stops an order
+ * (null when the order fits).
+ *
+ * spentSince() returns Infinity when a contribution row in this month has a
+ * missing, non-numeric or negative cost. That has to stop the order — and say
+ * why: "spent this month (Infinity)" would read like a bug, not like a ledger
+ * row a human has to fix.
+ */
+export function budgetStop(
+  spent: number,
+  total: number,
+  budget: { amount: number; currency: string }
+): string[] | null {
+  if (!Number.isFinite(spent)) {
+    return [
+      `\n✖ POLICY STOP: a corrupt contribution row in .carbon-md/ledger.jsonl (missing, non-numeric or negative cost) blocks spending until it is fixed.`,
+      "  monthly_budget_max can't be checked against a spend it can't add up. Fix or remove the row, then retry.",
+    ];
+  }
+  if (spent + total > budget.amount) {
+    return [
+      `\n✖ POLICY STOP: this order (${total.toFixed(2)}) + spent this month (${spent.toFixed(2)}) exceeds monthly_budget_max (${budget.amount} ${budget.currency}).`,
+      "  Raise the cap in carbon.md (a human decision, in the file) or reduce the amount.",
+    ];
+  }
+  return null;
+}
+
 function getFlag(argv: string[], name: string): string | undefined {
   const i = argv.indexOf(name);
   return i >= 0 ? argv[i + 1] : undefined;
@@ -217,7 +246,8 @@ async function executeX402(cwd: string, argv: string[], policy: CarbonPolicy): P
   // Policy enforcement — the whole point of the file.
   const budget = policy.policy.monthly_budget_max;
   const approval = policy.policy.approval_above;
-  // UTC calendar month; unparseable timestamps count as spent (fail closed).
+  // UTC calendar month; unparseable timestamps count as spent and a corrupt
+  // cost blocks the order (fail closed).
   const spentThisMonth = spentSince(events, monthStartUtc());
 
   console.log(`\n${bold("Retirement order — Klima x402 relay (Base)")}`);
@@ -239,11 +269,9 @@ async function executeX402(cwd: string, argv: string[], policy: CarbonPolicy): P
 
   // Policy before funds: what the file forbids is worth knowing before, not
   // after, you top the wallet up for an order it was never going to allow.
-  if (spentThisMonth + total > budget.amount) {
-    console.error(
-      `\n✖ POLICY STOP: this order (${total.toFixed(2)}) + spent this month (${spentThisMonth.toFixed(2)}) exceeds monthly_budget_max (${budget.amount} ${budget.currency}).`
-    );
-    console.error("  Raise the cap in carbon.md (a human decision, in the file) or reduce the amount.");
+  const stop = budgetStop(spentThisMonth, total, budget);
+  if (stop) {
+    for (const l of stop) console.error(l);
     return 1;
   }
 
