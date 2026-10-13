@@ -2,7 +2,10 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { fetchPassport, MAX_PASSPORT_BYTES } from "../commands/verify.js";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { cmdVerify, fetchPassport, MAX_PASSPORT_BYTES } from "../commands/verify.js";
 // The edge port must refuse the same responses, or the hosted API and the CLI
 // would disagree about what a passport URL even returned.
 // @ts-ignore — plain JS for Cloudflare Workers, no type declarations by design
@@ -118,4 +121,18 @@ test("edge fetchPassport refuses the same responses as the CLI", async () => {
   await assert.rejects(edge.fetchPassport(`${base}/missing`), /^Error: HTTP 404 fetching the passport$/);
   await assert.rejects(edge.fetchPassport(`${base}/huge`), /larger than 1 MB/);
   await assert.rejects(edge.fetchPassport(`${base}/huge-chunked`), /larger than 1 MB/);
+});
+
+test("verify <file>: valid JSON that is not a passport exits 2 with a clear message", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "carbon-md-verify-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  for (const [name, body] of [["null.json", "null"], ["array.json", "[1]"], ["object.json", '{"x":1}']]) {
+    const file = join(dir, name);
+    writeFileSync(file, body, "utf8");
+    const err = t.mock.method(console, "error", () => {});
+    const code = await cmdVerify(dir, [file, "--offline"]);
+    err.mock.restore();
+    assert.equal(code, 2, name);
+    assert.deepEqual(err.mock.calls.map((c) => c.arguments[0]), ["✖ not a carbon.md passport document"], name);
+  }
 });
