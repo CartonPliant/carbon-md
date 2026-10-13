@@ -122,6 +122,27 @@ export function monthStartUtc(now: Date = new Date()): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 }
 
+/** ISO-like date or date-time with no zone designator ("Z" or "±hh:mm"). */
+const ZONELESS_ISO = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?))?$/;
+
+/**
+ * A ledger `ts` as epoch milliseconds, or NaN when it can't be placed in time.
+ *
+ * Rows we write are UTC ISO strings, but ledgers are hand-edited and imported:
+ * - a number is taken as epoch ms, as `new Date(number)` used to;
+ * - an ISO-like string without a zone ("2026-09-30T23:30:00",
+ *   "2026-10-01 00:30:00") is read as UTC. `Date.parse` reads those as
+ *   host-local, which would put the month boundary back on the host's clock;
+ * - anything else goes to `Date.parse`.
+ */
+export function parseTs(ts: string | number): number {
+  if (typeof ts === "number") return Number.isFinite(ts) ? ts : NaN;
+  if (typeof ts !== "string") return NaN;
+  const m = ZONELESS_ISO.exec(ts.trim());
+  if (m) return Date.parse(`${m[1]}T${m[2] ?? "00:00"}Z`);
+  return Date.parse(ts);
+}
+
 /**
  * Whether a ledger row falls in the window starting at `since` (inclusive).
  *
@@ -132,9 +153,9 @@ export function monthStartUtc(now: Date = new Date()): Date {
  * We can't say which month a row belongs to, so for reporting it belongs to
  * none. Money is the exception — see spentSince.
  */
-export function inWindow(ts: string, since?: Date): boolean {
+export function inWindow(ts: string | number, since?: Date): boolean {
   if (!since) return true;
-  const t = Date.parse(ts);
+  const t = parseTs(ts);
   return !Number.isNaN(t) && t >= since.getTime();
 }
 
@@ -157,7 +178,7 @@ export function spentSince(events: LedgerEvent[], since: Date): number {
   let spent = 0;
   for (const e of events) {
     if (e.type !== "contribution") continue;
-    if (!inWindow(e.ts, since) && !Number.isNaN(Date.parse(e.ts))) continue;
+    if (!inWindow(e.ts, since) && !Number.isNaN(parseTs(e.ts))) continue;
     const cost: unknown = e.cost;
     if (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0) return Infinity;
     spent += cost;

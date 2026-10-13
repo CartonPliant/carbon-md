@@ -1,9 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import {
   aggregate,
   inWindow,
   monthStartUtc,
+  parseTs,
   spentSince,
   type ContributionEvent,
   type UsageEvent,
@@ -100,3 +102,49 @@ test("spentSince: a corrupt cost in an unparseable-ts row also blocks; one in an
   const old = { ...contribution("2026-09-01T00:00:00Z", 0), cost: "x" } as unknown as ContributionEvent;
   assert.equal(spentSince([contribution("2026-10-05T00:00:00Z", 3), old], since), 3);
 });
+
+test("parseTs: zone-less ISO timestamps are UTC, epoch ms pass through, garbage is NaN", () => {
+  assert.equal(parseTs("2026-09-30T23:30:00"), Date.UTC(2026, 8, 30, 23, 30));
+  assert.equal(parseTs("2026-10-01 00:30:00"), Date.UTC(2026, 9, 1, 0, 30));
+  assert.equal(parseTs("2026-10-01T00:30"), Date.UTC(2026, 9, 1, 0, 30));
+  assert.equal(parseTs("2026-10-01T00:30:00.250"), Date.UTC(2026, 9, 1, 0, 30, 0, 250));
+  assert.equal(parseTs("2026-10-01"), Date.UTC(2026, 9, 1));
+  assert.equal(parseTs("2026-10-01T00:30:00+02:00"), Date.UTC(2026, 8, 30, 22, 30));
+  assert.equal(parseTs("2026-10-01T00:30:00Z"), Date.UTC(2026, 9, 1, 0, 30));
+  assert.equal(parseTs(Date.UTC(2026, 9, 1)), Date.UTC(2026, 9, 1));
+  assert.ok(Number.isNaN(parseTs("garbage")));
+  assert.ok(Number.isNaN(parseTs("")));
+  assert.ok(Number.isNaN(parseTs(NaN)));
+  assert.ok(Number.isNaN(parseTs(undefined as unknown as string)));
+});
+
+test("inWindow: zone-less and epoch-ms timestamps are cut in UTC", () => {
+  const since = new Date("2026-10-01T00:00:00Z");
+  assert.equal(inWindow("2026-09-30T23:30:00", since), false);
+  assert.equal(inWindow("2026-10-01 00:30:00", since), true);
+  assert.equal(inWindow(Date.UTC(2026, 9, 1), since), true);
+  assert.equal(inWindow(Date.UTC(2026, 9, 1) - 1, since), false);
+});
+
+// Date.parse reads zone-less ISO date-times as host-local, so the checks above
+// would pass on a UTC host with the old code. Re-run them under UTC-10 and
+// UTC+14, where local parsing moves both rows across the boundary.
+for (const TZ of ["Pacific/Honolulu", "Pacific/Kiritimati"]) {
+  test(`inWindow: zone-less timestamps are UTC under TZ=${TZ} too`, () => {
+    const ledger = new URL("../core/ledger.js", import.meta.url).href;
+    const script = `
+      const { inWindow } = await import(${JSON.stringify(ledger)});
+      const since = new Date("2026-10-01T00:00:00Z");
+      process.stdout.write(JSON.stringify([
+        inWindow("2026-09-30T23:30:00", since),
+        inWindow("2026-10-01 00:30:00", since),
+      ]));
+    `;
+    const stdout = execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+      env: { ...process.env, TZ },
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+    assert.deepEqual(JSON.parse(stdout), [false, true]);
+  });
+}
