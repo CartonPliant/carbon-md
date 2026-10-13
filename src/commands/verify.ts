@@ -18,12 +18,63 @@ const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`;
 
 const LEVELS = ["L0", "L1", "L2", "L3"] as const;
 
-async function load(target: string): Promise<Passport> {
-  if (/^https?:\/\//.test(target)) {
-    const res = await fetch(target);
-    if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${target}`);
-    return (await res.json()) as Passport;
+/** A passport is a few KB; anything near this is not one. Same cap as the edge. */
+export const MAX_PASSPORT_BYTES = 1024 * 1024;
+
+/** Read a response body as text, refusing to buffer more than `max` bytes. */
+async function readCapped(res: Response, max: number): Promise<string> {
+  const tooBig = () => new Error(`the passport is larger than ${max / (1024 * 1024)} MB — refusing to read it`);
+  if (Number(res.headers.get("content-length")) > max) throw tooBig();
+  if (!res.body) return "";
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel();
+      throw tooBig();
+    }
+    chunks.push(value);
   }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+/**
+ * Fetch a passport document from a URL, with the same guards as the edge
+ * `fetchPassport` (docs-site/functions/_lib/passport.js), so the CLI and the
+ * hosted API fail the same way on the same bad URL.
+ */
+export async function fetchPassport(url: string, { timeoutMs = 8000 } = {}): Promise<Passport> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), headers: { accept: "application/json" } });
+    if (!res.ok) throw new Error(`HTTP ${res.status} fetching the passport`);
+    const body = await readCapped(res, MAX_PASSPORT_BYTES);
+    try {
+      return JSON.parse(body) as Passport;
+    } catch {
+      // Single-page sites answer 200 with index.html for any unknown path, so a
+      // typo in the URL arrives here looking like a document. Say so plainly.
+      const ct = res.headers.get("content-type") || "unknown";
+      const looksHtml = body.trimStart().startsWith("<") || /text\/html/i.test(ct);
+      throw new Error(
+        looksHtml
+          ? "the URL returned HTML, not a passport — check the path (many sites answer 200 with their index page for unknown paths)"
+          : `the URL did not return JSON (content-type: ${ct})`
+      );
+    }
+  } catch (e: any) {
+    if (e?.name === "TimeoutError" || e?.name === "AbortError") {
+      throw new Error(`timed out after ${timeoutMs / 1000}s fetching the passport`);
+    }
+    throw e;
+  }
+}
+
+async function load(target: string): Promise<Passport> {
+  if (/^https?:\/\//.test(target)) return fetchPassport(target);
   const p = resolve(target);
   if (!existsSync(p)) throw new Error(`no such file: ${p}`);
   return JSON.parse(readFileSync(p, "utf8"));
@@ -142,6 +193,11 @@ export async function cmdVerify(cwd: string, argv: string[]): Promise<number> {
     p = await load(target);
   } catch (e: any) {
     console.error(`✖ ${e.message}`);
+    return 2;
+  }
+  // Valid JSON is not yet a passport (`null`, an error object, someone's API).
+  if (!p || typeof p !== "object" || !p.carbon_passport) {
+    console.error("✖ not a carbon.md passport document");
     return 2;
   }
 

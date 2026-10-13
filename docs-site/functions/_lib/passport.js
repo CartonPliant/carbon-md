@@ -252,6 +252,36 @@ export function json(body, status, extra) {
   });
 }
 
+/** A passport is a few KB; anything near this is not one. Same cap as the CLI. */
+const MAX_PASSPORT_BYTES = 1024 * 1024;
+
+/** Read a response body as text, refusing to buffer more than `max` bytes. */
+async function readCapped(res, max) {
+  const tooBig = () => new Error("the passport is larger than " + max / (1024 * 1024) + " MB — refusing to read it");
+  if (Number(res.headers.get("content-length")) > max) throw tooBig();
+  if (!res.body) return "";
+  const reader = res.body.getReader();
+  const chunks = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel();
+      throw tooBig();
+    }
+    chunks.push(value);
+  }
+  const all = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) {
+    all.set(c, at);
+    at += c.byteLength;
+  }
+  return new TextDecoder().decode(all);
+}
+
 /** Fetch a passport document from a URL, with guards. */
 export async function fetchPassport(url) {
   let u;
@@ -263,14 +293,14 @@ export async function fetchPassport(url) {
   if (u.protocol !== "https:" && u.protocol !== "http:") throw new Error("url must be http(s)");
   const res = await fetch(u.toString(), { signal: AbortSignal.timeout(8000), headers: { accept: "application/json" } });
   if (!res.ok) throw new Error("HTTP " + res.status + " fetching the passport");
-  const body = await res.text();
+  const body = await readCapped(res, MAX_PASSPORT_BYTES);
   try {
     return JSON.parse(body);
   } catch {
     // Single-page sites answer 200 with index.html for any unknown path, so a
     // typo in the URL arrives here looking like a document. Say so plainly.
     const ct = res.headers.get("content-type") || "unknown";
-    const looksHtml = body.trimStart().startsWith("<");
+    const looksHtml = body.trimStart().startsWith("<") || /text\/html/i.test(ct);
     throw new Error(
       looksHtml
         ? "the URL returned HTML, not a passport — check the path (many sites answer 200 with their index page for unknown paths)"
