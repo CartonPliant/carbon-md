@@ -65,7 +65,7 @@ Recording what actually happened is always allowed — hiding it is not. `--reco
 Two independent gates, both must pass:
 
 1. **`approval_above`** — an order costing more is flagged as needing human confirmation. Every `--execute` stops for a typed `retire` before it signs anything, so nothing is spent without a human in the loop.
-2. **`monthly_budget_max`** — month-to-date (UTC calendar month) contributions plus this order must stay under the cap. A contribution row in the ledger with a missing, non-numeric or negative cost blocks spending until it is fixed — the cap is never checked against a spend that can't be added up.
+2. **`monthly_budget_max`** — month-to-date (UTC calendar month) contributions plus this order must stay under the cap. A contribution row from this month (or with an unreadable timestamp) whose cost is missing, non-numeric or negative blocks spending until it is fixed — the cap is never checked against a spend that can't be added up.
 
 A third, physical gate applies on the on-chain rail: the [wallet](/cli/wallet/) is prepaid, so an agent cannot spend more than was deposited — regardless of what any config says.
 
