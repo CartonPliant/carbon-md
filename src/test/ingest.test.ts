@@ -1,12 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { cmdIngest, lineKeys, mapReport, normalizeTs } from "../commands/ingest.js";
+import { _io, cmdIngest, lineKeys, mapReport, normalizeTs } from "../commands/ingest.js";
 import { readLedger, type UsageEvent } from "../core/ledger.js";
 
 const CLI = fileURLToPath(new URL("../index.js", import.meta.url));
@@ -24,6 +34,20 @@ function usage(cwd: string): UsageEvent[] {
 }
 
 const line = (o: object) => JSON.stringify(o);
+
+/** Runs fn with console.error captured; returns what it printed. */
+async function captureStderr<T>(fn: () => Promise<T>): Promise<{ result: T; err: string }> {
+  const orig = console.error;
+  let err = "";
+  console.error = (...a: unknown[]) => {
+    err += a.join(" ") + "\n";
+  };
+  try {
+    return { result: await fn(), err };
+  } finally {
+    console.error = orig;
+  }
+}
 
 test("normalizeTs: ISO strings and numeric epochs become ISO 8601", () => {
   assert.equal(normalizeTs("2026-08-01T09:12:00Z"), "2026-08-01T09:12:00.000Z");
@@ -322,5 +346,78 @@ test("ingest: records without ts are never deduplicated — a repeat is new usag
   assert.equal(await cmdIngest(cwd, [file]), 0);
   assert.equal(usage(cwd).length, 2);
 
+  rmSync(cwd, { recursive: true, force: true });
+});
+
+test("ingest: a corrupt or wrong-shape state file fails the run and writes nothing", async () => {
+  for (const bad of ["{not json", '{"ingested":"x"}', '{"ingested":[1]}', "[]", "null"]) {
+    const cwd = workDir();
+    const file = join(cwd, "usage.jsonl");
+    writeFileSync(file, line({ ts: "2026-10-01T10:00:00Z", model: "gpt-5.5", tokens_in: 10, tokens_out: 1 }) + "\n");
+    const sources = join(cwd, ".carbon-md", "sources");
+    mkdirSync(sources, { recursive: true });
+    const state = join(sources, "ingest.json");
+    writeFileSync(state, bad);
+
+    const { result, err } = await captureStderr(() => cmdIngest(cwd, [file]));
+    assert.equal(result, 1, `state ${bad}`);
+    assert.match(err, /ingest\.json/);
+    assert.match(err, /nothing was written/i);
+    assert.equal(usage(cwd).length, 0);
+    assert.equal(readFileSync(state, "utf8"), bad);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("ingest: an unwritable state dir aborts before any ledger write", async (t) => {
+  if (process.getuid?.() === 0) return t.skip("root ignores directory permissions");
+  const cwd = workDir();
+  const file = join(cwd, "usage.jsonl");
+  writeFileSync(file, line({ ts: "2026-10-01T10:00:00Z", model: "gpt-5.5", tokens_in: 10, tokens_out: 1 }) + "\n");
+  assert.equal(await cmdIngest(cwd, [file]), 0);
+  appendFileSync(file, line({ ts: "2026-10-01T11:00:00Z", model: "gpt-5.5", tokens_in: 20, tokens_out: 2 }) + "\n");
+
+  const sources = join(cwd, ".carbon-md", "sources");
+  chmodSync(sources, 0o555);
+  try {
+    for (let run = 0; run < 2; run++) {
+      const { result, err } = await captureStderr(() => cmdIngest(cwd, [file]));
+      assert.equal(result, 1);
+      assert.match(err, /nothing was written/i);
+      assert.equal(usage(cwd).length, 1, "no retry may duplicate the batch");
+    }
+  } finally {
+    chmodSync(sources, 0o755);
+  }
+  assert.deepEqual(readdirSync(sources), ["ingest.json"]);
+  rmSync(cwd, { recursive: true, force: true });
+});
+
+test("ingest: a state commit failing after the ledger append says so explicitly", async () => {
+  const cwd = workDir();
+  const file = join(cwd, "usage.jsonl");
+  writeFileSync(
+    file,
+    [
+      line({ ts: "2026-10-01T10:00:00Z", model: "gpt-5.5", tokens_in: 10, tokens_out: 1 }),
+      line({ ts: "2026-10-01T11:00:00Z", model: "gpt-5.5", tokens_in: 20, tokens_out: 2 }),
+    ].join("\n") + "\n"
+  );
+  const orig = _io.renameSync;
+  _io.renameSync = () => {
+    throw Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" });
+  };
+  try {
+    const { result, err } = await captureStderr(() => cmdIngest(cwd, [file]));
+    assert.equal(result, 1);
+    assert.match(err, /2 events were written to the ledger but not recorded as ingested/);
+    assert.match(err, /re-running .*duplicate/i);
+  } finally {
+    _io.renameSync = orig;
+  }
+  assert.equal(usage(cwd).length, 2);
+  const sources = join(cwd, ".carbon-md", "sources");
+  assert.ok(!existsSync(join(sources, "ingest.json")));
+  assert.deepEqual(readdirSync(sources), [], "tmp file cleaned up");
   rmSync(cwd, { recursive: true, force: true });
 });

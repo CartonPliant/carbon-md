@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { estimateGco2e, FACTORS_VERSION, formatG } from "../core/factors.js";
 import { appendEvents, LEDGER_DIR, type UsageEvent } from "../core/ledger.js";
@@ -281,6 +281,10 @@ export function lineKeys(lines: string[]): string[] {
   });
 }
 
+/** Test seam: lets a test make the state commit fail after the ledger
+ *  append, which no real filesystem setup reproduces deterministically. */
+export const _io = { renameSync };
+
 interface IngestState {
   ingested: string[];
 }
@@ -289,25 +293,76 @@ function statePath(cwd: string): string {
   return join(cwd, LEDGER_DIR, "sources", "ingest.json");
 }
 
-function loadState(cwd: string): IngestState {
-  const p = statePath(cwd);
-  if (!existsSync(p)) return { ingested: [] };
-  try {
-    const s = JSON.parse(readFileSync(p, "utf8"));
-    return Array.isArray(s?.ingested) ? s : { ingested: [] };
-  } catch {
-    return { ingested: [] };
-  }
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
 
-/** Written to a temp file then renamed: a crash mid-write must not leave a
- *  truncated state that forgets what was ingested and double-counts it all. */
-function saveState(cwd: string, state: IngestState): void {
+/**
+ * The ingest state, or an error message if the file exists but is unusable.
+ * Falling back to an empty state here would be the worst option: every
+ * input already in the ledger would be ingested again (double-counted), and
+ * the state overwritten, erasing the evidence. A missing file is the only
+ * legitimate "nothing ingested yet".
+ */
+function loadState(cwd: string): IngestState | { error: string } {
   const p = statePath(cwd);
-  mkdirSync(join(cwd, LEDGER_DIR, "sources"), { recursive: true });
+  if (!existsSync(p)) return { ingested: [] };
+  let s: any;
+  try {
+    s = JSON.parse(readFileSync(p, "utf8"));
+  } catch (e) {
+    return { error: `can't read ${p} (${errMsg(e)})` };
+  }
+  const ok =
+    s && typeof s === "object" && Array.isArray(s.ingested) &&
+    s.ingested.every((k: unknown) => typeof k === "string");
+  return ok ? s : { error: `${p} is not a valid ingest state (expected {"ingested": [string, ...]})` };
+}
+
+/**
+ * Commit a batch: state to a temp file, then ledger append, then rename.
+ * The temp write comes first so an unwritable state dir aborts before the
+ * ledger is touched — otherwise each retry would append the batch again
+ * without ever recording it. The rename is the commit point: a crash
+ * mid-write never leaves a truncated state that forgets everything. Only a
+ * failure between the append and the rename can still duplicate, and that
+ * one is reported in full. Returns the exit code.
+ */
+function commitBatch(cwd: string, events: UsageEvent[], state: IngestState): number {
+  const p = statePath(cwd);
   const tmp = `${p}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify(state), "utf8");
-  renameSync(tmp, p);
+  // Best effort: the error being reported matters more than a stray tmp file.
+  const dropTmp = () => {
+    try {
+      rmSync(tmp, { force: true });
+    } catch {}
+  };
+  try {
+    mkdirSync(join(cwd, LEDGER_DIR, "sources"), { recursive: true });
+    writeFileSync(tmp, JSON.stringify(state), "utf8");
+  } catch (e) {
+    dropTmp();
+    console.error(`✖ Can't write ingest state ${p} (${errMsg(e)}) — nothing was written.`);
+    return 1;
+  }
+  try {
+    appendEvents(cwd, events);
+  } catch (e) {
+    dropTmp();
+    console.error(`✖ Can't append to the ledger (${errMsg(e)}) — nothing was recorded.`);
+    return 1;
+  }
+  try {
+    _io.renameSync(tmp, p);
+  } catch (e) {
+    dropTmp();
+    console.error(
+      `✖ ${events.length} events were written to the ledger but not recorded as ingested in ${p} (${errMsg(e)}).\n` +
+        `  Re-running ingest on the same input will duplicate them; fix the state file's permissions first.`
+    );
+    return 1;
+  }
+  return 0;
 }
 
 export async function cmdIngest(cwd: string, argv: string[]): Promise<number> {
@@ -336,6 +391,13 @@ export async function cmdIngest(cwd: string, argv: string[]): Promise<number> {
     .filter(Boolean);
   const keys = lineKeys(lines);
   const state = loadState(cwd);
+  if ("error" in state) {
+    console.error(
+      `✖ ${state.error} — nothing was written.\n` +
+        `  Fix or restore it; deleting it re-ingests (double-counts) everything already in the ledger.`
+    );
+    return 1;
+  }
   const done = new Set(state.ingested);
   const newKeys: string[] = [];
   let already = 0;
@@ -412,10 +474,10 @@ export async function cmdIngest(cwd: string, argv: string[]): Promise<number> {
     return 1;
   }
 
-  // Ledger first, state second: a crash in between re-ingests this batch on
-  // the next run (visible, fixable) rather than losing it for good.
-  appendEvents(cwd, events);
-  saveState(cwd, { ingested: [...state.ingested, ...newKeys] });
+  // Ledger before the state commit: a crash in between re-ingests this batch
+  // on the next run (visible, fixable) rather than losing it for good.
+  const code = commitBatch(cwd, events, { ingested: [...state.ingested, ...newKeys] });
+  if (code) return code;
   const total = events.reduce((s, e) => s + e.gco2e.central, 0);
   console.log(
     `✔ Ingested ${events.length} records (${skipped} skipped${alreadyNote}) → ~${formatG(total)} central estimate`
