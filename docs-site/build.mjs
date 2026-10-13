@@ -339,8 +339,9 @@ writeFileSync(
     `\n</urlset>\n`,
   "utf8"
 );
-// serve the agent contract as text/plain (functions/agent.js sets it for /agent too)
-writeFileSync(join(OUT, "_headers"), `/agent\n  Content-Type: text/plain; charset=utf-8\n/agent.txt\n  Content-Type: text/plain; charset=utf-8\n/.well-known/carbon-md/agent.txt\n  Content-Type: text/plain; charset=utf-8\n`, "utf8");
+// serve the agent contract files as text/plain. No /agent rule: that path is a
+// Function (functions/agent.js sets its own type) and _headers skips Functions.
+writeFileSync(join(OUT, "_headers"), `/agent.txt\n  Content-Type: text/plain; charset=utf-8\n/.well-known/carbon-md/agent.txt\n  Content-Type: text/plain; charset=utf-8\n`, "utf8");
 
 console.log(`✔ built ${count} pages → ${OUT}`);
 

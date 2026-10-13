@@ -46,7 +46,10 @@ test("docs build: the agent contract is published as plain-text files", () => {
   // Pages never serves index.txt for a directory; /agent is a Function instead
   assert.ok(!existsSync(join(out, "agent", "index.txt")));
   const headers = readFileSync(join(out, "_headers"), "utf8");
-  assert.match(headers, /\/agent\.txt\n  Content-Type: text\/plain; charset=utf-8/);
+  assert.match(headers, /^\/agent\.txt\n  Content-Type: text\/plain; charset=utf-8$/m);
+  assert.match(headers, /^\/\.well-known\/carbon-md\/agent\.txt\n  Content-Type: text\/plain; charset=utf-8$/m);
+  // _headers never applies to Function responses, so a /agent rule would be dead
+  assert.doesNotMatch(headers, /^\/agent$/m);
 });
 
 test("/agent serves the plain-text contract with a 200, not HTML and not a redirect", async () => {
