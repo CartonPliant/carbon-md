@@ -111,7 +111,8 @@ export async function cmdContribute(cwd: string, argv: string[]): Promise<number
     const usage =
       "Usage: carbon-md contribute --record --tonnes <t> --cost <amount> [--rail cnaught|carbonmark|manual]\n" +
       "                            [--receipt <url>] [--class \"<credit class>\"] [--method removal|avoidance|mixed]";
-    if (!Number.isFinite(tonnes) || tonnes <= 0 || !Number.isFinite(cost)) {
+    // A negative cost would be read back as a corrupt row and block every --execute.
+    if (!Number.isFinite(tonnes) || tonnes <= 0 || !Number.isFinite(cost) || cost < 0) {
       console.error(usage);
       return 1;
     }
