@@ -70,7 +70,7 @@ Si `ingest.json` existe mais est illisible ou n'est pas un état valide, la comm
 Quand il n'y a rien de nouveau :
 
 ```
-✔ Up to date — nothing new (511 already ingested, skipped).
+✔ Up to date — nothing new (511 already ingested; 3 skipped).
 ```
 
 ## Dépannage

@@ -70,7 +70,7 @@ If `ingest.json` exists but can't be read or isn't a valid state, the run **fail
 When there's nothing new:
 
 ```
-✔ Up to date — nothing new (511 already ingested, skipped).
+✔ Up to date — nothing new (511 already ingested; 3 skipped).
 ```
 
 ## Troubleshooting

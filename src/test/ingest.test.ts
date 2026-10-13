@@ -320,10 +320,9 @@ test("ingest: stdin re-ingest is idempotent too", (t) => {
   const input = line({ ts: 1760000000, model: "gpt-5.5", tokens_in: 1000, tokens_out: 100 }) + "\n";
   const run = () => execFileSync("node", [CLI, "ingest", "-"], { cwd, input, encoding: "utf8" });
 
-  assert.match(run(), /Ingested 1 record/);
+  assert.match(run(), /Ingested 1 record \(/);
   const second = run();
-  assert.match(second, /up to date/i);
-  assert.match(second, /1 already ingested/);
+  assert.match(second, /Up to date — nothing new \(1 already ingested\)\./);
   assert.equal(usage(cwd).length, 1);
 });
 
@@ -331,11 +330,19 @@ test("ingest: records without ts are never deduplicated — a repeat is new usag
   const cwd = workDir(t);
   const file = join(cwd, "usage.jsonl");
   // `{model, tokens_in, tokens_out}` piped once a day: same line, two real usages
-  writeFileSync(file, line({ model: "gpt-5.5", tokens_in: 1000, tokens_out: 100 }) + "\n");
+  const daily = line({ model: "gpt-5.5", tokens_in: 1000, tokens_out: 100 });
+  writeFileSync(file, daily + "\n");
 
   assert.equal(await cmdIngest(cwd, [file]), 0);
   assert.equal(await cmdIngest(cwd, [file]), 0);
   assert.equal(usage(cwd).length, 2);
+
+  writeFileSync(file, daily + "\n" + daily + "\n");
+  const { result, out } = await captureStdout(() => cmdIngest(cwd, [file]));
+  assert.equal(result, 0);
+  assert.match(out, /Ingested 2 records \(/);
+  assert.match(out, /note: 2 records had no ts/);
+  assert.equal(usage(cwd).length, 4);
 });
 
 test("ingest: a corrupt or wrong-shape state file fails the run and writes nothing", async (t) => {
@@ -450,13 +457,13 @@ test("ingest: OTLP dedup is per datapoint — timed ones once, untimed ones ever
   const first = await captureStdout(() => cmdIngest(cwd, [file]));
   assert.equal(first.result, 0);
   assert.match(first.out, /Ingested 3 records/);
-  assert.match(first.out, /note: 1 record\(s\) had no ts/);
+  assert.match(first.out, /note: 1 record had no ts/);
   assert.equal(usage(cwd).length, 3);
 
   const second = await captureStdout(() => cmdIngest(cwd, [file]));
   assert.equal(second.result, 0);
-  assert.match(second.out, /Ingested 1 records? \(0 skipped, 2 already ingested\)/);
-  assert.match(second.out, /note: 1 record\(s\) had no ts/);
+  assert.match(second.out, /Ingested 1 record \(0 skipped, 2 already ingested\)/);
+  assert.match(second.out, /note: 1 record had no ts/);
   const events = usage(cwd);
   assert.equal(events.length, 4);
   assert.equal(events.filter((e) => e.tokens_in === 100).length, 1, "timed datapoint counted once");
@@ -469,10 +476,10 @@ test("ingest: an OTLP line's invalid datapoints keep being reported as skipped",
   writeFileSync(file, otlpLine([["input", "100", T], ["output", "-5", T]]) + "\n");
 
   const first = await captureStdout(() => cmdIngest(cwd, [file]));
-  assert.match(first.out, /Ingested 1 record.*\(1 skipped\)/);
+  assert.match(first.out, /Ingested 1 record \(1 skipped\)/);
 
   const second = await captureStdout(() => cmdIngest(cwd, [file]));
   assert.equal(second.result, 0);
-  assert.match(second.out, /Up to date — nothing new \(1 already ingested, skipped; 1 invalid skipped\)/);
+  assert.match(second.out, /Up to date — nothing new \(1 already ingested; 1 skipped\)\./);
   assert.equal(usage(cwd).length, 1);
 });

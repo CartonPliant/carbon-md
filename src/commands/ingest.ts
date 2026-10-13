@@ -307,6 +307,11 @@ function statePath(cwd: string): string {
   return join(cwd, LEDGER_DIR, "sources", "ingest.json");
 }
 
+/** "1 record" / "N records". */
+function records(n: number): string {
+  return `${n} record${n === 1 ? "" : "s"}`;
+}
+
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
@@ -488,8 +493,8 @@ export async function cmdIngest(cwd: string, argv: string[]): Promise<number> {
   const alreadyNote = already ? `, ${already} already ingested` : "";
   if (!events.length) {
     if (already) {
-      const invalid = skipped ? `; ${skipped} invalid skipped` : "";
-      console.log(`✔ Up to date — nothing new (${already} already ingested, skipped${invalid}).`);
+      const skippedNote = skipped ? `; ${skipped} skipped` : "";
+      console.log(`✔ Up to date — nothing new (${already} already ingested${skippedNote}).`);
       return 0;
     }
     console.error(`✖ No usable records found (${skipped} skipped).`);
@@ -502,7 +507,7 @@ export async function cmdIngest(cwd: string, argv: string[]): Promise<number> {
   if (code) return code;
   const total = events.reduce((s, e) => s + e.gco2e.central, 0);
   console.log(
-    `✔ Ingested ${events.length} records (${skipped} skipped${alreadyNote}) → ~${formatG(total)} central estimate`
+    `✔ Ingested ${records(events.length)} (${skipped} skipped${alreadyNote}) → ~${formatG(total)} central estimate`
   );
   if (cacheReadTotal) {
     console.log(
@@ -511,7 +516,7 @@ export async function cmdIngest(cwd: string, argv: string[]): Promise<number> {
   }
   if (untimed) {
     console.log(
-      `  note: ${untimed} record(s) had no ts — stamped now and not deduplicated; ingesting them again counts them again`
+      `  note: ${records(untimed)} had no ts — stamped now and not deduplicated; ingesting them again counts them again`
     );
   }
   for (const w of warnings) console.log(`  ⚠ ${w}`);
