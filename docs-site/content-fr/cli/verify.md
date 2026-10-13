@@ -72,6 +72,8 @@ npx carbon-md verify https://votre-registre/passport.json --min L2
 
 La clé publique est incluse dans le `did:key` du sujet : les étapes 1 à 3 fonctionnent donc **sans aucun réseau**. `--offline` vérifie donc toujours un passeport ; il ne peut simplement pas confirmer les ancres ni la certification.
 
+**Le signataire doit être le sujet.** Un passeport v0.1 est auto-émis : la clé de `proof.verification_method` doit être le même `did:key` que `subject.id` et `issuer`. Sinon la signature est déclarée invalide — `signed by did:key:A but subject is did:key:B` — quelle que soit la solidité de la cryptographie, car la certification est recherchée par sujet et personne ne peut signer au nom d'un autre.
+
 ## Voir aussi
 
 - [passport](/fr/cli/passport/) — en émettre un
