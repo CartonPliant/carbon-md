@@ -324,8 +324,8 @@ if (!agentTxt) {
   throw new Error("agent.txt not found at " + agentCandidates.join(" or ") + " — /agent would serve fallback HTML labelled text/plain");
 }
 {
-  mkdirSync(join(OUT, "agent"), { recursive: true });
-  copyFileSync(agentTxt, join(OUT, "agent", "index.txt"));
+  // /agent itself is served by functions/agent.js from agent.txt: Pages never
+  // serves index.txt for a directory, so a static /agent/ fell through to HTML.
   copyFileSync(agentTxt, join(OUT, "agent.txt"));
   mkdirSync(join(OUT, ".well-known", "carbon-md"), { recursive: true });
   copyFileSync(agentTxt, join(OUT, ".well-known", "carbon-md", "agent.txt"));
@@ -339,7 +339,7 @@ writeFileSync(
     `\n</urlset>\n`,
   "utf8"
 );
-// serve agent.txt as text/plain even from the /agent/ directory
+// serve the agent contract as text/plain (functions/agent.js sets it for /agent too)
 writeFileSync(join(OUT, "_headers"), `/agent\n  Content-Type: text/plain; charset=utf-8\n/agent.txt\n  Content-Type: text/plain; charset=utf-8\n/.well-known/carbon-md/agent.txt\n  Content-Type: text/plain; charset=utf-8\n`, "utf8");
 
 console.log(`✔ built ${count} pages → ${OUT}`);

@@ -40,4 +40,5 @@ Nav, prev/next, sitemap and the on-page TOC update automatically.
 - Cloudflare Pages project: `carbonmd-docs` → attach `docs.carbonmd.dev` (CNAME `docs` → `carbonmd-docs.pages.dev`, proxied).
 - `functions/` is picked up automatically by `wrangler pages deploy` when run from this directory; the deploy log should say `Uploading Functions bundle`.
 - Wrangler needs `NODE_OPTIONS=--dns-result-order=ipv4first` on hosts with IPv6 egress, or auth fails with a misleading error 10000.
-- The build copies `../repo/agent.txt` to `/agent`, `/agent.txt` and `/.well-known/carbon-md/agent.txt`, and writes `_headers` so they're served as `text/plain`.
+- The build copies `../agent.txt` (or `../repo/agent.txt`) to `/agent.txt` and `/.well-known/carbon-md/agent.txt`, and writes `_headers` so they're served as `text/plain`. `/agent` itself is answered by `functions/agent.js` from `/agent.txt` — Pages never serves `index.txt` for a directory, so a static `/agent/` would fall through to HTML.
+- The build writes `404.html` (and `fr/404.html`). Without a top-level `404.html`, Pages treats the project as a single-page app and answers every unknown path with the homepage and a 200.

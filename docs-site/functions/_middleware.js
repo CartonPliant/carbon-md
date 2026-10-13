@@ -34,8 +34,9 @@ export async function onRequest(context) {
   const { request, next } = context
   const url = new URL(request.url)
   const { pathname } = url
-  // API + well-known are language-neutral: no locale cookies, no redirects
+  // API, well-known and the agent contract are language-neutral: no locale cookies, no redirects
   if (pathname.startsWith('/v1/') || pathname.startsWith('/.well-known/')) return next()
+  if (pathname === '/agent' || pathname === '/agent/') return next()
   if (/\.[a-zA-Z0-9]+$/.test(pathname) || pathname.startsWith('/cdn-cgi/')) return next()
 
   const isFr = pathname === '/fr' || pathname.startsWith('/fr/')
