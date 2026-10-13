@@ -52,8 +52,10 @@ test("docs build: the agent contract is published as plain-text files", () => {
   assert.doesNotMatch(headers, /^\/agent$/m);
 });
 
-test("/agent answers GET (and HEAD) only, so Pages returns 405 for other methods", () => {
+test("/agent answers GET and HEAD only, so Pages returns 405 for other methods", () => {
   assert.equal(typeof agentFn.onRequestGet, "function");
+  // Pages does not route HEAD to onRequestGet (`wrangler pages dev` answers it 404)
+  assert.equal(agentFn.onRequestHead, agentFn.onRequestGet);
   assert.equal(agentFn.onRequest, undefined);
 });
 
