@@ -102,19 +102,24 @@ export function sign(p: Passport, key: KeyFile): Passport {
  * key's own multibase value (`did:key:z6Mk…#z6Mk…`), so a mismatch means the
  * document is pointing at a key it does not name.
  */
-export function checkSignerBinding(p: Passport): { valid: true } | { valid: false; reason: string } {
-  const vm = String(p.proof?.verification_method ?? "");
+export function checkSignerBinding(
+  p: Passport
+): { valid: true; did: string } | { valid: false; reason: string } {
+  const vm: unknown = p.proof?.verification_method;
+  // No String() coercion: ["did:key:X#X"] would stringify into a valid-looking method.
+  if (typeof vm !== "string") return { valid: false, reason: "verification method is not a string" };
   const hash = vm.indexOf("#");
   const did = hash < 0 ? vm : vm.slice(0, hash);
-  const fragment = hash < 0 ? "" : vm.slice(hash + 1);
   if (!did.startsWith("did:key:")) return { valid: false, reason: `verification method is not a did:key: ${vm}` };
+  if (hash < 0) return { valid: false, reason: "verification method has no #fragment" };
+  const fragment = vm.slice(hash + 1);
   if (fragment !== did.slice("did:key:".length)) {
     return { valid: false, reason: `verification method fragment #${fragment} does not match ${did}` };
   }
   const subject = p.subject?.id;
   if (subject !== did) return { valid: false, reason: `signed by ${did} but subject is ${subject ?? "missing"}` };
   if (p.issuer !== did) return { valid: false, reason: `signed by ${did} but issuer is ${p.issuer ?? "missing"}` };
-  return { valid: true };
+  return { valid: true, did };
 }
 
 export function verifySignature(p: Passport): { valid: boolean; reason?: string } {
@@ -126,7 +131,7 @@ export function verifySignature(p: Passport): { valid: boolean; reason?: string 
   // Before the cryptography: a perfect signature by the wrong key is still a forgery.
   const binding = checkSignerBinding(p);
   if (!binding.valid) return binding;
-  const did = p.proof.verification_method.split("#")[0];
+  const { did } = binding;
   try {
     const ok = verifyBytes(did, signingBytes(p), base58decode(p.proof.signature.slice(1)));
     return ok ? { valid: true } : { valid: false, reason: "signature does not match the document" };

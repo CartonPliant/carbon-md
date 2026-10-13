@@ -56,18 +56,21 @@ export function canonicalize(value) {
  * fragment must be the key's own multibase value.
  */
 export function checkSignerBinding(p) {
-  const vm = String((p && p.proof && p.proof.verification_method) || "");
+  const vm = p && p.proof ? p.proof.verification_method : undefined;
+  // No String() coercion: ["did:key:X#X"] would stringify into a valid-looking method.
+  if (typeof vm !== "string") return { valid: false, reason: "verification method is not a string" };
   const hash = vm.indexOf("#");
   const did = hash < 0 ? vm : vm.slice(0, hash);
-  const fragment = hash < 0 ? "" : vm.slice(hash + 1);
   if (!did.startsWith("did:key:")) return { valid: false, reason: "verification method is not a did:key: " + vm };
+  if (hash < 0) return { valid: false, reason: "verification method has no #fragment" };
+  const fragment = vm.slice(hash + 1);
   if (fragment !== did.slice("did:key:".length)) {
     return { valid: false, reason: "verification method fragment #" + fragment + " does not match " + did };
   }
   const subject = p.subject && p.subject.id;
   if (subject !== did) return { valid: false, reason: "signed by " + did + " but subject is " + (subject ?? "missing") };
   if (p.issuer !== did) return { valid: false, reason: "signed by " + did + " but issuer is " + (p.issuer ?? "missing") };
-  return { valid: true };
+  return { valid: true, did };
 }
 
 export async function verifySignature(p) {
@@ -80,8 +83,7 @@ export async function verifySignature(p) {
   const binding = checkSignerBinding(p);
   if (!binding.valid) return binding;
   try {
-    const did = String(p.proof.verification_method || "").split("#")[0];
-    const raw = didToPublicKey(did);
+    const raw = didToPublicKey(binding.did);
     const { proof, ...unsigned } = p;
     const data = new TextEncoder().encode(canonicalize(unsigned));
     const key = await crypto.subtle.importKey("raw", raw, { name: "Ed25519" }, false, ["verify"]);

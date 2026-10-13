@@ -85,9 +85,30 @@ test("edge port rejects a signer that is not the subject or issuer, with the sam
       attacker
     );
     const signed = sign(passport({ subject: { id: attacker.did, name: "demo", kind: "project" }, issuer: attacker.did }), attacker);
-    const wrongFragment = { ...signed, proof: { ...signed.proof!, verification_method: `${attacker.did}#z6MkNotTheKey` } };
+    const withMethod = (vm: unknown) => ({ ...signed, proof: { ...signed.proof!, verification_method: vm } });
+    const wrongFragment = withMethod(`${attacker.did}#z6MkNotTheKey`);
+    const noFragment = withMethod(attacker.did);
+    const notDidKey = withMethod("did:web:example.com#key-1");
+    // String() would turn ["did:key:X#X"] into "did:key:X#X" and let it through.
+    const arrayMethod = withMethod([signed.proof!.verification_method]);
+    const numberMethod = withMethod(42);
+    const { subject: _s, ...noSubject } = signed;
+    const nullSubjectId = { ...signed, subject: { ...signed.subject, id: null } };
+    const { issuer: _i, ...noIssuer } = signed;
 
-    for (const doc of [forgedSubject, forgedIssuer, wrongFragment]) {
+    const docs = [
+      forgedSubject,
+      forgedIssuer,
+      wrongFragment,
+      noFragment,
+      notDidKey,
+      arrayMethod,
+      numberMethod,
+      noSubject,
+      nullSubjectId,
+      noIssuer,
+    ];
+    for (const doc of docs) {
       const cli = verifySignature(doc as Passport);
       const edgeResult = await edgeVerify(doc);
       assert.equal(cli.valid, false);
@@ -95,6 +116,10 @@ test("edge port rejects a signer that is not the subject or issuer, with the sam
     }
     assert.match(verifySignature(forgedSubject).reason ?? "", /but subject is/);
     assert.match(verifySignature(forgedIssuer).reason ?? "", /but issuer is/);
+    assert.match(verifySignature(noFragment as Passport).reason ?? "", /has no #fragment/);
+    assert.match(verifySignature(arrayMethod as any).reason ?? "", /verification method is not a string/);
+    assert.match(verifySignature(noSubject as any).reason ?? "", /but subject is missing/);
+    assert.match(verifySignature(noIssuer as any).reason ?? "", /but issuer is missing/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

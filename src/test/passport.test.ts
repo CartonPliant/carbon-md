@@ -148,3 +148,51 @@ test("a verification method whose fragment is not the did:key's own key is inval
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a verification method that is malformed or not a did:key is invalid, without throwing", () => {
+  const dir = tmp();
+  try {
+    const key = createKey(dir);
+    const signed = sign(basePassport({ subject: { id: key.did, name: "demo", kind: "project" }, issuer: key.did }), key);
+    const withMethod = (vm: unknown) =>
+      ({ ...signed, proof: { ...signed.proof!, verification_method: vm } }) as unknown as Passport;
+
+    assert.deepEqual(verifySignature(withMethod(key.did)), {
+      valid: false,
+      reason: "verification method has no #fragment",
+    });
+    assert.deepEqual(verifySignature(withMethod("did:web:example.com#key-1")), {
+      valid: false,
+      reason: "verification method is not a did:key: did:web:example.com#key-1",
+    });
+    // An array would stringify to a valid-looking method; it must be refused, not crash .split.
+    for (const vm of [[signed.proof!.verification_method], 42, undefined]) {
+      assert.deepEqual(verifySignature(withMethod(vm)), {
+        valid: false,
+        reason: "verification method is not a string",
+      });
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a passport with no subject or no issuer is invalid", () => {
+  const dir = tmp();
+  try {
+    const key = createKey(dir);
+    const signed = sign(basePassport({ subject: { id: key.did, name: "demo", kind: "project" }, issuer: key.did }), key);
+    const { subject: _s, ...noSubject } = signed;
+    assert.deepEqual(verifySignature(noSubject as unknown as Passport), {
+      valid: false,
+      reason: `signed by ${key.did} but subject is missing`,
+    });
+    const { issuer: _i, ...noIssuer } = signed;
+    assert.deepEqual(verifySignature(noIssuer as unknown as Passport), {
+      valid: false,
+      reason: `signed by ${key.did} but issuer is missing`,
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
