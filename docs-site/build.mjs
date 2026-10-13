@@ -229,7 +229,7 @@ ${urlMeta}
   </div>
 </nav>
 <div class="shell">
-  <aside class="sidebar">${sidebar(slug)}</aside>
+  <aside class="sidebar">${sidebar(notFound ? null : slug)}</aside>
   <main id="main">
     <article class="prose">${bodyHtml}</article>
     <nav class="pager">

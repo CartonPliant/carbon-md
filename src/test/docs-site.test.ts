@@ -32,6 +32,11 @@ test("docs build: emits a 404.html, so unknown paths stop answering 200 with the
   const fr = readFileSync(join(out, "fr", "404.html"), "utf8");
   assert.match(fr, /<html lang="fr">/);
   assert.match(fr, /Page introuvable/);
+  // a miss is no page in the nav: nothing in the sidebar is marked current
+  for (const html of [en, fr]) {
+    assert.doesNotMatch(html, /aria-current="page"/);
+    assert.doesNotMatch(html, /class="active"/);
+  }
 });
 
 test("docs build: the agent contract is published as plain-text files", () => {
