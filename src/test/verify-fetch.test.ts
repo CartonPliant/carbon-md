@@ -2,7 +2,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cmdVerify, fetchPassport, MAX_PASSPORT_BYTES } from "../commands/verify.js";
@@ -135,4 +135,22 @@ test("verify <file>: valid JSON that is not a passport exits 2 with a clear mess
     assert.equal(code, 2, name);
     assert.deepEqual(err.mock.calls.map((c) => c.arguments[0]), ["✖ not a carbon.md passport document"], name);
   }
+});
+
+test("verify <file>: a leading UTF-8 BOM is not a parse error (parity with verify <url>)", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "carbon-md-verify-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const example = readFileSync(join(import.meta.dirname, "..", "..", "docs-site", "static", "examples", "passport.json"), "utf8");
+  const plain = join(dir, "plain.json");
+  const bom = join(dir, "bom.json");
+  writeFileSync(plain, example, "utf8");
+  writeFileSync(bom, "\uFEFF" + example, "utf8");
+  const log = t.mock.method(console, "log", () => {});
+  const err = t.mock.method(console, "error", () => {});
+  const expected = await cmdVerify(dir, [plain, "--offline"]);
+  const code = await cmdVerify(dir, [bom, "--offline"]);
+  log.mock.restore();
+  err.mock.restore();
+  assert.equal(expected, 0);
+  assert.equal(code, expected);
 });

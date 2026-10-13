@@ -78,7 +78,8 @@ async function load(target: string): Promise<Passport> {
   if (/^https?:\/\//.test(target)) return fetchPassport(target);
   const p = resolve(target);
   if (!existsSync(p)) throw new Error(`no such file: ${p}`);
-  return JSON.parse(readFileSync(p, "utf8"));
+  // Strip a leading UTF-8 BOM, as the URL branch does (editors and PowerShell add one)
+  return JSON.parse(readFileSync(p, "utf8").replace(/^\uFEFF/, ""));
 }
 
 /** Several endpoints, so one refusing us never becomes a claim about a retirement. */
