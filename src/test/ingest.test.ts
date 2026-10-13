@@ -483,3 +483,34 @@ test("ingest: an OTLP line's invalid datapoints keep being reported as skipped",
   assert.match(second.out, /Up to date — nothing new \(1 already ingested; 1 skipped\)\./);
   assert.equal(usage(cwd).length, 1);
 });
+
+test("ingest: a mixed OTLP line (timed + untimed + invalid) ingested three times", async (t) => {
+  const cwd = workDir(t);
+  const file = join(cwd, "otel.jsonl");
+  const T = "1760000000000000000";
+  writeFileSync(
+    file,
+    otlpLine([["input", "100", T], ["output", "10", T], ["input", "7", "0"], ["output", "-5", T]]) + "\n"
+  );
+
+  const first = await captureStdout(() => cmdIngest(cwd, [file]));
+  assert.equal(first.result, 0);
+  assert.match(first.out, /Ingested 3 records \(1 skipped\)/);
+  assert.match(first.out, /note: 1 record had no ts/);
+  assert.equal(usage(cwd).length, 3);
+
+  for (const [run, ledger] of [[2, 4], [3, 5]]) {
+    const { result, out } = await captureStdout(() => cmdIngest(cwd, [file]));
+    assert.equal(result, 0, `run ${run}`);
+    assert.match(out, /Ingested 1 record \(1 skipped, 2 already ingested\)/, `run ${run}`);
+    assert.match(out, /note: 1 record had no ts/, `run ${run}`);
+    assert.equal(usage(cwd).length, ledger, `run ${run}`);
+  }
+
+  const events = usage(cwd);
+  assert.equal(events.length, 5);
+  assert.equal(events.filter((e) => e.tokens_in === 100).length, 1, "timed input once");
+  assert.equal(events.filter((e) => e.tokens_out === 10).length, 1, "timed output once");
+  assert.equal(events.filter((e) => e.tokens_in === 7).length, 3, "untimed every run");
+  assert.ok(events.every((e) => e.tokens_out !== 5 && e.tokens_out >= 0), "invalid never written");
+});
