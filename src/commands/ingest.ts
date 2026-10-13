@@ -34,12 +34,13 @@ import { findPolicyPath } from "../core/policy.js";
  * usage, and an Invalid Date drops the event out of every period view.
  *
  * Idempotence: like the sync adapters, ingest keeps state in
- * .carbon-md/sources/ingest.json — the keys of every input line already
- * written to the ledger — so re-ingesting a file (or the same stdin) adds
- * nothing, and re-ingesting a file that has grown adds only the new lines.
- * Records without a ts are the exception: they can't be told apart from new
- * usage, so they are always ingested (see the loop in cmdIngest).
- * See lineKeys for why the key is the raw line, not the produced event.
+ * .carbon-md/sources/ingest.json — the keys of every record already
+ * written to the ledger (a report line, or one OTLP datapoint) — so
+ * re-ingesting a file (or the same stdin) adds nothing, and re-ingesting a
+ * file that has grown adds only the new records. Records without a ts are
+ * the exception: they can't be told apart from new usage, so they are
+ * always ingested (see the loop in cmdIngest). See lineKeys for why the key
+ * is the raw line, not the produced event.
  */
 
 interface Rec {
@@ -188,9 +189,18 @@ export function normalizeTs(v: unknown): string | undefined | null {
   return ms === null ? null : plausibleIso(ms);
 }
 
-/** `invalid.n` counts datapoints dropped by validation (bad value or time). */
-function flattenOtlp(obj: any, warnings: Set<string>, invalid: { n: number }): Rec[] {
-  const recs: Rec[] = [];
+/**
+ * Each usable datapoint with its index among the line's datapoints — the
+ * index is what dedup keys a datapoint by (see lineKeys). `invalid.n` counts
+ * datapoints dropped by validation (bad value or time).
+ */
+function flattenOtlp(
+  obj: any,
+  warnings: Set<string>,
+  invalid: { n: number }
+): { idx: number; rec: Rec }[] {
+  const recs: { idx: number; rec: Rec }[] = [];
+  let idx = -1;
   for (const rm of obj.resourceMetrics ?? []) {
     for (const sm of rm.scopeMetrics ?? []) {
       for (const metric of sm.metrics ?? []) {
@@ -204,6 +214,7 @@ function flattenOtlp(obj: any, warnings: Set<string>, invalid: { n: number }): R
           );
         }
         for (const dp of sum?.dataPoints ?? []) {
+          idx++;
           const attrs = attrsOf(dp);
           const model =
             attrs["model"] ?? attrs["gen_ai.response.model"] ?? attrs["gen_ai.request.model"];
@@ -229,7 +240,7 @@ function flattenOtlp(obj: any, warnings: Set<string>, invalid: { n: number }): R
           else if (OUT_TYPES.has(type)) rec.tokensOut = value;
           else if (CACHE_TYPES.has(type)) rec.cacheRead = value;
           else continue; // unknown token type — leave for a future spec rev
-          recs.push(rec);
+          recs.push({ idx, rec });
         }
       }
     }
@@ -266,7 +277,10 @@ export function mapReport(obj: any): Rec | null {
  * are stamped with ingestion time, so their events differ on every run. The
  * occurrence index keeps two genuinely identical lines (same model, same
  * counts, no ts) as two usages, while a re-run maps them to the same keys.
- * For an OTLP line the key covers all of its datapoints.
+ * That key identifies a report line's single record; an OTLP line holds
+ * many, so each datapoint is keyed `${lineKey}/${index}` and remembered on
+ * its own (a line mixing timed and untimed datapoints must still dedup the
+ * timed ones).
  *
  * State is global to the project, not per file: stdin has no path, and a
  * renamed or rotated file should not be counted again.
@@ -404,10 +418,6 @@ export async function cmdIngest(cwd: string, argv: string[]): Promise<number> {
   let untimed = 0;
 
   for (const [i, trimmed] of lines.entries()) {
-    if (done.has(keys[i])) {
-      already++;
-      continue;
-    }
     let obj: any;
     try {
       obj = JSON.parse(trimmed);
@@ -415,27 +425,39 @@ export async function cmdIngest(cwd: string, argv: string[]): Promise<number> {
       skipped++;
       continue;
     }
-    let lineRecs: Rec[];
+    // Dedup is per record: a report line is one record keyed by its line
+    // key, an OTLP datapoint is keyed by line key + its index in the line.
+    let lineRecs: { key: string; rec: Rec }[];
     if (obj?.resourceMetrics) {
-      lineRecs = flattenOtlp(obj, warnings, invalidDatapoints);
+      lineRecs = flattenOtlp(obj, warnings, invalidDatapoints).map(({ idx, rec }) => ({
+        key: `${keys[i]}/${idx}`,
+        rec,
+      }));
     } else {
       const rec = obj && typeof obj === "object" ? mapReport(obj) : null;
       if (!rec) {
         skipped++;
         continue;
       }
-      lineRecs = [rec];
+      lineRecs = [{ key: keys[i], rec }];
     }
-    // Only lines that yielded usage are remembered: a skipped line stays
-    // visible as skipped on every run instead of being silently "done".
-    // And only timestamped ones: without a ts, two identical lines from two
-    // different runs (`{model, tokens_in, tokens_out}` piped daily, as init
-    // suggests) are two real usages we cannot tell apart from a re-run.
-    // Dropping one would silently under-count, so those lines are always
-    // ingested and the run says so.
-    if (lineRecs.length && lineRecs.every((r) => r.ts)) newKeys.push(keys[i]);
-    else untimed += lineRecs.length;
-    recs.push(...lineRecs);
+    for (const { key, rec } of lineRecs) {
+      if (done.has(key)) {
+        already++;
+        continue;
+      }
+      // Only records that passed validation get here: an invalid one is
+      // never remembered, so it stays visible as skipped on every run
+      // instead of being silently "done". And only timestamped ones are
+      // remembered: without a ts, two identical lines from two different
+      // runs (`{model, tokens_in, tokens_out}` piped daily, as init
+      // suggests) are two real usages we cannot tell apart from a re-run.
+      // Dropping one would silently under-count, so those records are
+      // always ingested and the run says so.
+      if (rec.ts) newKeys.push(key);
+      else untimed++;
+      recs.push(rec);
+    }
   }
   skipped += invalidDatapoints.n;
 

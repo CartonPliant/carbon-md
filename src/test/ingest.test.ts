@@ -421,3 +421,74 @@ test("ingest: a state commit failing after the ledger append says so explicitly"
   assert.deepEqual(readdirSync(sources), [], "tmp file cleaned up");
   rmSync(cwd, { recursive: true, force: true });
 });
+
+/** One OTLP line; each datapoint is [type, value, timeUnixNano]. */
+function otlpLine(points: [string, unknown, unknown][]): string {
+  return line({
+    resourceMetrics: [{ scopeMetrics: [{ metrics: [{
+      name: "claude_code.token.usage",
+      sum: {
+        aggregationTemporality: 1,
+        dataPoints: points.map(([type, asInt, timeUnixNano]) => ({
+          attributes: [
+            { key: "model", value: { stringValue: "claude-sonnet-4" } },
+            { key: "type", value: { stringValue: type } },
+          ],
+          asInt,
+          timeUnixNano,
+        })),
+      },
+    }] }] }],
+  });
+}
+
+async function captureStdout<T>(fn: () => Promise<T>): Promise<{ result: T; out: string }> {
+  const orig = console.log;
+  let out = "";
+  console.log = (...a: unknown[]) => {
+    out += a.join(" ") + "\n";
+  };
+  try {
+    return { result: await fn(), out };
+  } finally {
+    console.log = orig;
+  }
+}
+
+test("ingest: OTLP dedup is per datapoint — timed ones once, untimed ones every run", async () => {
+  const cwd = workDir();
+  const file = join(cwd, "otel.jsonl");
+  const T = "1760000000000000000";
+  writeFileSync(file, otlpLine([["input", "100", T], ["output", "10", T], ["input", "7", "0"]]) + "\n");
+
+  const first = await captureStdout(() => cmdIngest(cwd, [file]));
+  assert.equal(first.result, 0);
+  assert.match(first.out, /Ingested 3 records/);
+  assert.match(first.out, /note: 1 record\(s\) had no ts/);
+  assert.equal(usage(cwd).length, 3);
+
+  const second = await captureStdout(() => cmdIngest(cwd, [file]));
+  assert.equal(second.result, 0);
+  assert.match(second.out, /Ingested 1 records? \(0 skipped, 2 already ingested\)/);
+  assert.match(second.out, /note: 1 record\(s\) had no ts/);
+  const events = usage(cwd);
+  assert.equal(events.length, 4);
+  assert.equal(events.filter((e) => e.tokens_in === 100).length, 1, "timed datapoint counted once");
+  rmSync(cwd, { recursive: true, force: true });
+});
+
+test("ingest: an OTLP line's invalid datapoints keep being reported as skipped", async () => {
+  const cwd = workDir();
+  const file = join(cwd, "otel.jsonl");
+  const T = "1760000000000000000";
+  writeFileSync(file, otlpLine([["input", "100", T], ["output", "-5", T]]) + "\n");
+
+  const first = await captureStdout(() => cmdIngest(cwd, [file]));
+  assert.match(first.out, /Ingested 1 record.*\(1 skipped\)/);
+
+  const second = await captureStdout(() => cmdIngest(cwd, [file]));
+  assert.equal(second.result, 0);
+  assert.match(second.out, /Up to date — nothing new \(1 already ingested, skipped; 1 invalid skipped\)/);
+  assert.equal(usage(cwd).length, 1);
+  rmSync(cwd, { recursive: true, force: true });
+});
