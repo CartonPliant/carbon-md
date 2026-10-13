@@ -9,6 +9,7 @@ import {
   spentSince,
   type ContributionEvent,
   type CreditMethod,
+  type LedgerEvent,
 } from "../core/ledger.js";
 import { findPolicyPath, parsePolicy, type CarbonPolicy } from "../core/policy.js";
 import { accountFor, loadWallet, usdcBalance } from "../core/wallet.js";
@@ -53,6 +54,22 @@ export function budgetStop(
     ];
   }
   return null;
+}
+
+/**
+ * The monthly_budget_max gate as executeX402 runs it: this UTC month's spend
+ * from the ledger, plus this order, against the cap. `now` is injectable so
+ * the window can be tested away from the real clock.
+ */
+export function monthlyBudgetStop(
+  events: LedgerEvent[],
+  total: number,
+  budget: { amount: number; currency: string },
+  now: Date = new Date()
+): string[] | null {
+  // UTC calendar month; unparseable timestamps count as spent and a corrupt
+  // cost blocks the order (fail closed).
+  return budgetStop(spentSince(events, monthStartUtc(now)), total, budget);
 }
 
 function getFlag(argv: string[], name: string): string | undefined {
@@ -246,9 +263,6 @@ async function executeX402(cwd: string, argv: string[], policy: CarbonPolicy): P
   // Policy enforcement — the whole point of the file.
   const budget = policy.policy.monthly_budget_max;
   const approval = policy.policy.approval_above;
-  // UTC calendar month; unparseable timestamps count as spent and a corrupt
-  // cost blocks the order (fail closed).
-  const spentThisMonth = spentSince(events, monthStartUtc());
 
   console.log(`\n${bold("Retirement order — Klima x402 relay (Base)")}`);
   console.log(`  class        ${cls.name} ${dim("(" + method + ")")}`);
@@ -269,7 +283,7 @@ async function executeX402(cwd: string, argv: string[], policy: CarbonPolicy): P
 
   // Policy before funds: what the file forbids is worth knowing before, not
   // after, you top the wallet up for an order it was never going to allow.
-  const stop = budgetStop(spentThisMonth, total, budget);
+  const stop = monthlyBudgetStop(events, total, budget);
   if (stop) {
     for (const l of stop) console.error(l);
     return 1;
