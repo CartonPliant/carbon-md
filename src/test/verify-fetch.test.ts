@@ -46,6 +46,11 @@ const routes: Record<string, (res: ServerResponse) => void> = {
   "/slow": () => {
     // never answers
   },
+  "/stall-body": (res) => {
+    // headers arrive, then the body never finishes: the timeout must cover the read too
+    res.writeHead(200, { "content-type": "application/json" });
+    res.write('{"carbon_passport":');
+  },
 };
 
 const server = createServer((req, res) => (routes[req.url ?? ""] ?? routes["/missing"])(res));
@@ -80,8 +85,16 @@ test("verify <url>: bodies over the size cap are refused, with or without conten
   await assert.rejects(fetchPassport(`${base}/huge-chunked`), /larger than 1 MB/);
 });
 
-test("verify <url>: a server that never answers times out", async () => {
-  await assert.rejects(fetchPassport(`${base}/slow`, { timeoutMs: 200 }), /timed out/);
+test("verify <url>: a server that never answers times out, with the same message on the edge", async () => {
+  const msg = /^Error: timed out after 0\.2s fetching the passport$/;
+  await assert.rejects(fetchPassport(`${base}/slow`, { timeoutMs: 200 }), msg);
+  await assert.rejects(edge.fetchPassport(`${base}/slow`, { timeoutMs: 200 }), msg);
+});
+
+test("verify <url>: a body that stalls after the headers still times out", async () => {
+  const msg = /^Error: timed out after 0\.2s fetching the passport$/;
+  await assert.rejects(fetchPassport(`${base}/stall-body`, { timeoutMs: 200 }), msg);
+  await assert.rejects(edge.fetchPassport(`${base}/stall-body`, { timeoutMs: 200 }), msg);
 });
 
 test("edge fetchPassport refuses the same responses as the CLI", async () => {

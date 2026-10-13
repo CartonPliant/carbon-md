@@ -282,8 +282,8 @@ async function readCapped(res, max) {
   return new TextDecoder().decode(all);
 }
 
-/** Fetch a passport document from a URL, with guards. */
-export async function fetchPassport(url) {
+/** Fetch a passport document from a URL, with guards. Same messages as the CLI. */
+export async function fetchPassport(url, { timeoutMs = 8000 } = {}) {
   let u;
   try {
     u = new URL(url);
@@ -291,20 +291,28 @@ export async function fetchPassport(url) {
     throw new Error("invalid url");
   }
   if (u.protocol !== "https:" && u.protocol !== "http:") throw new Error("url must be http(s)");
-  const res = await fetch(u.toString(), { signal: AbortSignal.timeout(8000), headers: { accept: "application/json" } });
-  if (!res.ok) throw new Error("HTTP " + res.status + " fetching the passport");
-  const body = await readCapped(res, MAX_PASSPORT_BYTES);
   try {
-    return JSON.parse(body);
-  } catch {
-    // Single-page sites answer 200 with index.html for any unknown path, so a
-    // typo in the URL arrives here looking like a document. Say so plainly.
-    const ct = res.headers.get("content-type") || "unknown";
-    const looksHtml = body.trimStart().startsWith("<") || /text\/html/i.test(ct);
-    throw new Error(
-      looksHtml
-        ? "the URL returned HTML, not a passport — check the path (many sites answer 200 with their index page for unknown paths)"
-        : "the URL did not return JSON (content-type: " + ct + ")"
-    );
+    const res = await fetch(u.toString(), { signal: AbortSignal.timeout(timeoutMs), headers: { accept: "application/json" } });
+    if (!res.ok) throw new Error("HTTP " + res.status + " fetching the passport");
+    const body = await readCapped(res, MAX_PASSPORT_BYTES);
+    try {
+      return JSON.parse(body);
+    } catch {
+      // Single-page sites answer 200 with index.html for any unknown path, so a
+      // typo in the URL arrives here looking like a document. Say so plainly.
+      const ct = res.headers.get("content-type") || "unknown";
+      const looksHtml = body.trimStart().startsWith("<") || /text\/html/i.test(ct);
+      throw new Error(
+        looksHtml
+          ? "the URL returned HTML, not a passport — check the path (many sites answer 200 with their index page for unknown paths)"
+          : "the URL did not return JSON (content-type: " + ct + ")"
+      );
+    }
+  } catch (e) {
+    // the timeout covers the body read too, which aborts with the same error names
+    if (e && (e.name === "TimeoutError" || e.name === "AbortError")) {
+      throw new Error("timed out after " + timeoutMs / 1000 + "s fetching the passport");
+    }
+    throw e;
   }
 }
