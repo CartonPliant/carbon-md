@@ -95,6 +95,14 @@ test("edge port rejects a signer that is not the subject or issuer, with the sam
     const { subject: _s, ...noSubject } = signed;
     const nullSubjectId = { ...signed, subject: { ...signed.subject, id: null } };
     const { issuer: _i, ...noIssuer } = signed;
+    // Falsy non-objects and empty strings: `p.subject && p.subject.id` would
+    // leak 0 / "" / false into the reason where optional chaining says missing.
+    const zeroSubject = { ...signed, subject: 0 };
+    const emptyStringSubject = { ...signed, subject: "" };
+    const falseSubject = { ...signed, subject: false };
+    const emptyIssuer = { ...signed, issuer: "" };
+    const emptySubjectId = { ...signed, subject: { ...signed.subject, id: "" } };
+    const numericSubjectId = { ...signed, subject: { ...signed.subject, id: 0 } };
 
     const docs = [
       forgedSubject,
@@ -107,6 +115,12 @@ test("edge port rejects a signer that is not the subject or issuer, with the sam
       noSubject,
       nullSubjectId,
       noIssuer,
+      zeroSubject,
+      emptyStringSubject,
+      falseSubject,
+      emptyIssuer,
+      emptySubjectId,
+      numericSubjectId,
     ];
     for (const doc of docs) {
       const cli = verifySignature(doc as Passport);
@@ -120,6 +134,13 @@ test("edge port rejects a signer that is not the subject or issuer, with the sam
     assert.match(verifySignature(arrayMethod as any).reason ?? "", /verification method is not a string/);
     assert.match(verifySignature(noSubject as any).reason ?? "", /but subject is missing/);
     assert.match(verifySignature(noIssuer as any).reason ?? "", /but issuer is missing/);
+    const did = attacker.did;
+    assert.equal(verifySignature(zeroSubject as any).reason, `signed by ${did} but subject is missing`);
+    assert.equal(verifySignature(falseSubject as any).reason, `signed by ${did} but subject is missing`);
+    assert.equal(verifySignature(emptySubjectId as any).reason, `signed by ${did} but subject is missing`);
+    assert.equal(verifySignature(emptyIssuer as any).reason, `signed by ${did} but issuer is missing`);
+    // A non-string id is shown as JSON, so 0 reads as 0 rather than vanishing.
+    assert.equal(verifySignature(numericSubjectId as any).reason, `signed by ${did} but subject is 0`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -116,10 +116,16 @@ export function checkSignerBinding(
   if (fragment !== did.slice("did:key:".length)) {
     return { valid: false, reason: `verification method fragment #${fragment} does not match ${did}` };
   }
-  const subject = p.subject?.id;
-  if (subject !== did) return { valid: false, reason: `signed by ${did} but subject is ${subject ?? "missing"}` };
-  if (p.issuer !== did) return { valid: false, reason: `signed by ${did} but issuer is ${p.issuer ?? "missing"}` };
+  const subject: unknown = p.subject?.id;
+  if (subject !== did) return { valid: false, reason: `signed by ${did} but subject is ${shownId(subject)}` };
+  if (p.issuer !== did) return { valid: false, reason: `signed by ${did} but issuer is ${shownId(p.issuer)}` };
   return { valid: true, did };
+}
+
+/** How a mismatched id reads in a reason. Mirrored in the edge port. */
+function shownId(v: unknown): string {
+  if (v == null || v === "") return "missing";
+  return typeof v === "string" ? v : JSON.stringify(v);
 }
 
 export function verifySignature(p: Passport): { valid: boolean; reason?: string } {
