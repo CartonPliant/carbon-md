@@ -27,7 +27,7 @@ Aucune installation nécessaire — `npx` s'en charge. Pour épingler une versio
 
 - **Local d'abord.** Chaque commande fonctionne hors ligne, sauf les rails de retrait et la consultation de solde. Jamais de compte.
 - **Consciente de la politique.** Les commandes qui touchent à l'argent lisent `carbon.md` et refusent de dépasser `approval_above` ou `monthly_budget_max`.
-- **Ingestion idempotente.** `sync` et `ingest` conservent un état par source dans `.carbon-md/sources/` — relancer ne compte jamais deux fois.
+- **Ingestion idempotente.** `sync` et `ingest` conservent un état par source dans `.carbon-md/sources/` — relancer ne compte jamais deux fois les enregistrements horodatés.
 - **Codes de sortie.** `0` succès, `1` erreur d'usage ou de configuration. Les erreurs vont sur stderr ; sortie exploitable par machine là où c'est documenté.
 
 ## Session typique

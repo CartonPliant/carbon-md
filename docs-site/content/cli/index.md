@@ -27,7 +27,7 @@ No install needed — `npx` fetches it. To pin a version: `npx carbon-md@0.1.11 
 
 - **Local-first.** Every command works offline except retirement rails and balance lookups. No account, ever.
 - **Policy-aware.** Commands that touch money read `carbon.md` and refuse to exceed `approval_above` or `monthly_budget_max`.
-- **Idempotent ingestion.** `sync` and `ingest` keep per-source state in `.carbon-md/sources/` — re-running never double-counts.
+- **Idempotent ingestion.** `sync` and `ingest` keep per-source state in `.carbon-md/sources/` — re-running never double-counts timestamped records.
 - **Exit codes.** `0` success, `1` user/config error. Errors go to stderr; machine-readable output where documented.
 
 ## Typical session
