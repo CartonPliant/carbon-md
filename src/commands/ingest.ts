@@ -22,6 +22,13 @@ import { findPolicyPath } from "../core/policy.js";
  *    serving costs far less than a fresh forward pass — we under-claim
  *    rather than inflate). Use DELTA temporality; cumulative sums would
  *    double-count and trigger a warning.
+ *
+ * Validation: token counts must be finite, non-negative numbers (numeric
+ * strings like "123" are accepted — OTLP/JSON encodes asInt as a string, and
+ * report producers do the same). Timestamps must parse; see normalizeTs. A
+ * record failing either check is skipped and counted, never written: a NaN
+ * poisons every total downstream, a negative count silently cancels real
+ * usage, and an Invalid Date drops the event out of every period view.
  */
 
 interface Rec {
@@ -47,7 +54,52 @@ function attrsOf(dp: any): Record<string, string> {
   return attrs;
 }
 
-function flattenOtlp(obj: any, warnings: Set<string>): Rec[] {
+const NUMERIC = /^\s*\d+(\.\d+)?\s*$/;
+
+/**
+ * A token count as a finite, non-negative number. Absent → 0; anything else
+ * (NaN, negative, Infinity, booleans, "abc") → null, so the caller skips the
+ * whole record rather than guess at what the producer meant.
+ */
+function toCount(v: unknown): number | null {
+  if (v === undefined || v === null) return 0;
+  if (typeof v === "number") return Number.isFinite(v) && v >= 0 ? v : null;
+  if (typeof v === "string" && NUMERIC.test(v)) return Number(v);
+  return null;
+}
+
+/** Below this a numeric epoch is read as seconds, at or above as milliseconds.
+ *  1e12 ms is September 2001 and 1e12 s is ~33,000 years out, so the two
+ *  readings never collide for any plausible usage timestamp. */
+const EPOCH_MS_THRESHOLD = 1e12;
+
+/**
+ * Normalize a record timestamp to ISO 8601 (UTC).
+ *   - absent (undefined/null/"") → undefined: the caller stamps ingestion time
+ *   - date string (ISO 8601)     → re-serialized as ISO 8601 UTC
+ *   - number or numeric string   → Unix epoch: seconds if < 1e12, else ms
+ *   - anything unparseable       → null: the caller skips the record
+ * Skipping instead of stamping "now" matters: a bad ts silently moved to
+ * today would land the usage in the wrong month of every report.
+ */
+export function normalizeTs(v: unknown): string | undefined | null {
+  if (v === undefined || v === null || v === "") return undefined;
+  let ms: number;
+  if (typeof v === "number" || (typeof v === "string" && NUMERIC.test(v))) {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0) return null;
+    ms = n < EPOCH_MS_THRESHOLD ? n * 1000 : n;
+  } else if (typeof v === "string") {
+    ms = Date.parse(v);
+  } else {
+    return null;
+  }
+  const d = new Date(ms);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+/** `invalid.n` counts datapoints dropped by validation (bad value or time). */
+function flattenOtlp(obj: any, warnings: Set<string>, invalid: { n: number }): Rec[] {
   const recs: Rec[] = [];
   for (const rm of obj.resourceMetrics ?? []) {
     for (const sm of rm.scopeMetrics ?? []) {
@@ -66,11 +118,22 @@ function flattenOtlp(obj: any, warnings: Set<string>): Rec[] {
           const model =
             attrs["model"] ?? attrs["gen_ai.response.model"] ?? attrs["gen_ai.request.model"];
           const type = attrs["type"] ?? attrs["gen_ai.token.type"];
-          const value = Number(dp.asInt ?? dp.asDouble ?? dp.sum ?? 0);
-          if (!model || !type || !value) continue;
-          const ts = dp.timeUnixNano
-            ? new Date(Number(dp.timeUnixNano) / 1e6).toISOString()
-            : undefined;
+          if (!model || !type) continue;
+          const value = toCount(dp.asInt ?? dp.asDouble ?? dp.sum);
+          if (value === null) {
+            invalid.n++;
+            continue;
+          }
+          if (!value) continue;
+          // OTLP's unit is unambiguous (ns), so no seconds/ms heuristic here;
+          // 0 is OTLP's "unset" and falls back to ingestion time.
+          const ns = toCount(dp.timeUnixNano);
+          const when = ns ? new Date(ns / 1e6) : undefined;
+          if (ns === null || (when && Number.isNaN(when.getTime()))) {
+            invalid.n++;
+            continue;
+          }
+          const ts = when?.toISOString();
           const rec: Rec = { model, tokensIn: 0, tokensOut: 0, cacheRead: 0, ts };
           if (IN_TYPES.has(type)) rec.tokensIn = value;
           else if (OUT_TYPES.has(type)) rec.tokensOut = value;
@@ -84,21 +147,24 @@ function flattenOtlp(obj: any, warnings: Set<string>): Rec[] {
   return recs;
 }
 
-function mapReport(obj: any): Rec | null {
+export function mapReport(obj: any): Rec | null {
   const usage = obj.usage ?? obj;
   const model: string | undefined = obj.model ?? obj.model_name;
-  const tokensIn = Number(usage.tokens_in ?? usage.input_tokens ?? usage.prompt_tokens ?? 0);
-  const tokensOut = Number(
-    usage.tokens_out ?? usage.output_tokens ?? usage.completion_tokens ?? 0
+  const tokensIn = toCount(usage.tokens_in ?? usage.input_tokens ?? usage.prompt_tokens);
+  const tokensOut = toCount(
+    usage.tokens_out ?? usage.output_tokens ?? usage.completion_tokens
   );
-  const cacheRead = Number(usage.cache_read_tokens ?? 0);
+  const cacheRead = toCount(usage.cache_read_tokens);
+  if (tokensIn === null || tokensOut === null || cacheRead === null) return null;
   if (!model || (!tokensIn && !tokensOut && !cacheRead)) return null;
+  const ts = normalizeTs(obj.ts ?? obj.timestamp ?? obj.startTime);
+  if (ts === null) return null;
   return {
     model,
     tokensIn,
     tokensOut,
     cacheRead,
-    ts: obj.ts ?? obj.timestamp ?? obj.startTime,
+    ts,
     provider: obj.provider ?? obj.custom_llm_provider,
   };
 }
@@ -121,6 +187,7 @@ export async function cmdIngest(cwd: string, argv: string[]): Promise<number> {
   const recs: Rec[] = [];
   const warnings = new Set<string>();
   let skipped = 0;
+  const invalidDatapoints = { n: 0 };
 
   for (const line of raw.split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -133,13 +200,14 @@ export async function cmdIngest(cwd: string, argv: string[]): Promise<number> {
       continue;
     }
     if (obj.resourceMetrics) {
-      recs.push(...flattenOtlp(obj, warnings));
+      recs.push(...flattenOtlp(obj, warnings, invalidDatapoints));
     } else {
       const rec = mapReport(obj);
       if (rec) recs.push(rec);
       else skipped++;
     }
   }
+  skipped += invalidDatapoints.n;
 
   const events: UsageEvent[] = [];
   const guessedModels = new Set<string>();
@@ -152,7 +220,7 @@ export async function cmdIngest(cwd: string, argv: string[]): Promise<number> {
     if (est.guessed) guessedModels.add(rec.model);
     events.push({
       type: "usage",
-      ts: String(rec.ts ?? new Date().toISOString()),
+      ts: rec.ts ?? new Date().toISOString(),
       source,
       provider: rec.provider,
       model: rec.model,
@@ -166,7 +234,7 @@ export async function cmdIngest(cwd: string, argv: string[]): Promise<number> {
   }
 
   if (!events.length) {
-    console.error(`✖ No usable records found (${skipped} lines skipped).`);
+    console.error(`✖ No usable records found (${skipped} skipped).`);
     return 1;
   }
 
