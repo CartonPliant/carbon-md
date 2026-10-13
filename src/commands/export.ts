@@ -5,6 +5,7 @@ import {
   aggregate,
   creditedTonnes,
   methodOf,
+  monthStartUtc,
   readLedger,
   type ContributionEvent,
   type LedgerEvent,
@@ -178,9 +179,7 @@ export async function cmdExport(cwd: string, argv: string[]): Promise<number> {
   const outDir = resolve(cwd, outIdx >= 0 ? argv[outIdx + 1] ?? "public" : "public");
 
   const events = readLedger(cwd);
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
+  const monthStart = monthStartUtc();
   const all = aggregate(events);
   const month = aggregate(events, monthStart);
 

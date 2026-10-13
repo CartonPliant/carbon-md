@@ -4,7 +4,9 @@ import {
   aggregate,
   appendEvents,
   creditedTonnes,
+  monthStartUtc,
   readLedger,
+  spentSince,
   type ContributionEvent,
   type CreditMethod,
 } from "../core/ledger.js";
@@ -215,12 +217,8 @@ async function executeX402(cwd: string, argv: string[], policy: CarbonPolicy): P
   // Policy enforcement — the whole point of the file.
   const budget = policy.policy.monthly_budget_max;
   const approval = policy.policy.approval_above;
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
-  const spentThisMonth = events
-    .filter((e): e is ContributionEvent => e.type === "contribution" && new Date(e.ts) >= monthStart)
-    .reduce((s, c) => s + c.cost, 0);
+  // UTC calendar month; unparseable timestamps count as spent (fail closed).
+  const spentThisMonth = spentSince(events, monthStartUtc());
 
   console.log(`\n${bold("Retirement order — Klima x402 relay (Base)")}`);
   console.log(`  class        ${cls.name} ${dim("(" + method + ")")}`);

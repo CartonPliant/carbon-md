@@ -1,5 +1,5 @@
 import { formatG, PORTFOLIO_PRICES } from "../core/factors.js";
-import { aggregate, creditedTonnes, readLedger } from "../core/ledger.js";
+import { aggregate, creditedTonnes, monthStartUtc, readLedger } from "../core/ledger.js";
 import { findPolicyPath, parsePolicy } from "../core/policy.js";
 import { DEFAULT_CLASS, MIN_TONNES, priceFor } from "../rails/x402.js";
 
@@ -17,9 +17,8 @@ export async function cmdStatus(cwd: string, argv: string[] = []): Promise<numbe
   const policy = parsePolicy(policyPath);
   const events = readLedger(cwd);
 
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
+  // UTC calendar month, matching the UTC timestamps in the ledger.
+  const monthStart = monthStartUtc();
 
   const all = aggregate(events);
   const month = aggregate(events, monthStart);

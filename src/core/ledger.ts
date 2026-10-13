@@ -109,6 +109,52 @@ export function creditedTonnes(t: Totals, portfolio: string): number {
   return t.contributedByMethod.get("removal") ?? 0;
 }
 
+/**
+ * Start of the current policy month: the first instant of the UTC calendar month.
+ *
+ * Ledger timestamps are UTC ISO strings, so the window has to be cut in UTC
+ * too. Cutting it at local midnight shifted the boundary by the host's offset:
+ * the same ledger reported a different "this month" — and, worse, enforced a
+ * different monthly_budget_max — depending on the machine's timezone, and a
+ * CI runner and a laptop could disagree about whether a cap was hit.
+ */
+export function monthStartUtc(now: Date = new Date()): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+}
+
+/**
+ * Whether a ledger row falls in the window starting at `since` (inclusive).
+ *
+ * With no window every row counts — all-time totals must not lose data. With
+ * a window, a row whose `ts` does not parse is *outside* it: `new Date(bad)`
+ * is Invalid Date, and `Invalid Date < since` is false, so a naive
+ * "skip if before" check used to count such rows in every month at once.
+ * We can't say which month a row belongs to, so for reporting it belongs to
+ * none. Money is the exception — see spentSince.
+ */
+export function inWindow(ts: string, since?: Date): boolean {
+  if (!since) return true;
+  const t = Date.parse(ts);
+  return !Number.isNaN(t) && t >= since.getTime();
+}
+
+/**
+ * Contribution spend since `since`, as checked against monthly_budget_max.
+ *
+ * Unlike reporting, a cap must fail closed: a contribution whose `ts` does not
+ * parse counts as spent in the current window. Ignoring it could only let a
+ * bad row raise the effective cap; counting it can only make the cap
+ * stricter, and a human can fix the row. Sums `cost` across currencies as-is.
+ */
+export function spentSince(events: LedgerEvent[], since: Date): number {
+  return events
+    .filter(
+      (e): e is ContributionEvent =>
+        e.type === "contribution" && (inWindow(e.ts, since) || Number.isNaN(Date.parse(e.ts)))
+    )
+    .reduce((s, c) => s + c.cost, 0);
+}
+
 export function aggregate(events: LedgerEvent[], since?: Date): Totals {
   const t: Totals = {
     usage: { low: 0, central: 0, high: 0, calls: 0, tokens: 0 },
@@ -118,7 +164,7 @@ export function aggregate(events: LedgerEvent[], since?: Date): Totals {
     contributedByMethod: new Map(),
   };
   for (const e of events) {
-    if (since && new Date(e.ts) < since) continue;
+    if (!inWindow(e.ts, since)) continue;
     if (e.type === "usage") {
       t.usage.low += e.gco2e.low;
       t.usage.central += e.gco2e.central;
