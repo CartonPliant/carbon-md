@@ -39,7 +39,8 @@ async function readCapped(res: Response, max: number): Promise<string> {
     }
     chunks.push(value);
   }
-  return Buffer.concat(chunks).toString("utf8");
+  // TextDecoder drops a leading UTF-8 BOM (as res.json() did); Buffer#toString keeps it
+  return new TextDecoder().decode(Buffer.concat(chunks));
 }
 
 /**

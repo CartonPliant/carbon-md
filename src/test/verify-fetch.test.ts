@@ -43,6 +43,11 @@ const routes: Record<string, (res: ServerResponse) => void> = {
     for (let i = 0; i < Math.ceil(MAX_PASSPORT_BYTES / chunk.length) + 2; i++) res.write(chunk);
     res.end('"}');
   },
+  // Some editors (and Windows PowerShell) save JSON with a UTF-8 BOM
+  "/bom": (res) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end("\uFEFF" + JSON.stringify({ carbon_passport: "0.1", subject: { id: "did:test" } }));
+  },
   "/slow": () => {
     // never answers
   },
@@ -83,6 +88,13 @@ test("verify <url>: a non-2xx status is a clear error", async () => {
 test("verify <url>: bodies over the size cap are refused, with or without content-length", async () => {
   await assert.rejects(fetchPassport(`${base}/huge`), /larger than 1 MB/);
   await assert.rejects(fetchPassport(`${base}/huge-chunked`), /larger than 1 MB/);
+});
+
+test("verify <url>: a leading UTF-8 BOM is not a parse error", async () => {
+  const p: any = await fetchPassport(`${base}/bom`);
+  assert.equal(p.carbon_passport, "0.1");
+  const e: any = await edge.fetchPassport(`${base}/bom`);
+  assert.equal(e.carbon_passport, "0.1");
 });
 
 test("verify <url>: a server that never answers times out, with the same message on the edge", async () => {
