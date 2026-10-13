@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
@@ -23,8 +23,10 @@ const CLI = fileURLToPath(new URL("../index.js", import.meta.url));
 
 const POLICY = `---\ncarbon_md: "0.1"\npolicy:\n  contribution_target: 1.10\n  monthly_budget_max: { amount: 5, currency: USD }\n  approval_above: { amount: 10, currency: USD }\nmethodology: carbonmd-factors-2026-07\n---\n`;
 
-function workDir(): string {
+/** A temp project with a carbon.md, removed when the test ends — pass or fail. */
+function workDir(t: TestContext): string {
   const dir = mkdtempSync(join(tmpdir(), "carbon-test-ingest-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
   writeFileSync(join(dir, "carbon.md"), POLICY, "utf8");
   return dir;
 }
@@ -115,8 +117,8 @@ test("normalizeTs: a zone-less time is UTC regardless of the host TZ", () => {
   assert.equal(out.trim(), "2026-08-01T09:12:00.000Z");
 });
 
-test("ingest: an OTLP datapoint with an implausible time is skipped", async () => {
-  const cwd = workDir();
+test("ingest: an OTLP datapoint with an implausible time is skipped", async (t) => {
+  const cwd = workDir(t);
   const otlp = {
     resourceMetrics: [{ scopeMetrics: [{ metrics: [{
       name: "claude_code.token.usage",
@@ -132,7 +134,6 @@ test("ingest: an OTLP datapoint with an implausible time is skipped", async () =
   writeFileSync(file, line(otlp) + "\n");
   assert.equal(await cmdIngest(cwd, [file]), 1);
   assert.equal(usage(cwd).length, 0);
-  rmSync(cwd, { recursive: true, force: true });
 });
 
 test("mapReport: non-numeric or negative token counts are rejected", () => {
@@ -153,8 +154,8 @@ test("mapReport: fractional or unsafe-integer token counts are rejected", () => 
   assert.equal(mapReport({ model: "gpt-5.5", tokens_in: 12.0, tokens_out: 1 })?.tokensIn, 12);
 });
 
-test("ingest: an OTLP datapoint with a fractional value is skipped, a real ns time is kept", async () => {
-  const cwd = workDir();
+test("ingest: an OTLP datapoint with a fractional value is skipped, a real ns time is kept", async (t) => {
+  const cwd = workDir(t);
   const dp = (value: unknown) => ({
     attributes: [
       { key: "model", value: { stringValue: "claude-sonnet-4" } },
@@ -177,7 +178,6 @@ test("ingest: an OTLP datapoint with a fractional value is skipped, a real ns ti
   assert.equal(events.length, 1);
   assert.equal(events[0].tokens_in, 500);
   assert.equal(events[0].ts, "2025-10-09T08:53:20.123Z");
-  rmSync(cwd, { recursive: true, force: true });
 });
 
 test("mapReport: numeric strings are accepted as counts", () => {
@@ -204,8 +204,8 @@ test("lineKeys: identical lines get distinct occurrence-indexed keys", () => {
   assert.deepEqual(lineKeys(["a", "b"]), keys.slice(0, 2));
 });
 
-test("ingest: invalid records are skipped and never reach the ledger", async () => {
-  const cwd = workDir();
+test("ingest: invalid records are skipped and never reach the ledger", async (t) => {
+  const cwd = workDir(t);
   const file = join(cwd, "usage.jsonl");
   writeFileSync(
     file,
@@ -230,23 +230,20 @@ test("ingest: invalid records are skipped and never reach the ledger", async () 
   assert.equal(events[0].ts, "2026-08-01T09:12:00.000Z");
   assert.equal(events[1].ts, "2025-10-09T08:53:20.000Z");
   assert.equal(events[1].tokens_in, 2000);
-
-  rmSync(cwd, { recursive: true, force: true });
 });
 
-test("ingest: a record without ts is stamped with ingestion time", async () => {
-  const cwd = workDir();
+test("ingest: a record without ts is stamped with ingestion time", async (t) => {
+  const cwd = workDir(t);
   const file = join(cwd, "usage.jsonl");
   writeFileSync(file, line({ model: "gpt-5.5", tokens_in: 10, tokens_out: 1 }) + "\n");
   const before = Date.now();
   assert.equal(await cmdIngest(cwd, [file]), 0);
   const [e] = usage(cwd);
   assert.ok(new Date(e.ts).getTime() >= before - 1000);
-  rmSync(cwd, { recursive: true, force: true });
 });
 
-test("ingest: OTLP datapoints with negative values or bad timestamps are skipped", async () => {
-  const cwd = workDir();
+test("ingest: OTLP datapoints with negative values or bad timestamps are skipped", async (t) => {
+  const cwd = workDir(t);
   const dp = (type: string, value: unknown, timeUnixNano: unknown) => ({
     attributes: [
       { key: "model", value: { stringValue: "claude-sonnet-4" } },
@@ -285,11 +282,10 @@ test("ingest: OTLP datapoints with negative values or bad timestamps are skipped
   assert.equal(events.length, 1);
   assert.equal(events[0].tokens_in, 500);
   assert.equal(events[0].ts, "2025-10-09T08:53:20.000Z");
-  rmSync(cwd, { recursive: true, force: true });
 });
 
-test("ingest: re-ingesting the same file is idempotent; appended lines are picked up", async () => {
-  const cwd = workDir();
+test("ingest: re-ingesting the same file is idempotent; appended lines are picked up", async (t) => {
+  const cwd = workDir(t);
   const file = join(cwd, "usage.jsonl");
   // two genuinely identical lines — both are real usage and both must count
   const dup = line({ ts: "2026-10-01T10:00:00Z", model: "gpt-5.5", tokens_in: 1000, tokens_out: 100 });
@@ -309,21 +305,18 @@ test("ingest: re-ingesting the same file is idempotent; appended lines are picke
   );
   assert.equal(await cmdIngest(cwd, [file]), 0);
   assert.equal(usage(cwd).length, 4);
-
-  rmSync(cwd, { recursive: true, force: true });
 });
 
-test("ingest: still fails when a fresh input has no usable records", async () => {
-  const cwd = workDir();
+test("ingest: still fails when a fresh input has no usable records", async (t) => {
+  const cwd = workDir(t);
   const file = join(cwd, "usage.jsonl");
   writeFileSync(file, "not json\n" + line({ model: "gpt-5.5", tokens_in: "abc" }) + "\n");
   assert.equal(await cmdIngest(cwd, [file]), 1);
   assert.equal(usage(cwd).length, 0);
-  rmSync(cwd, { recursive: true, force: true });
 });
 
-test("ingest: stdin re-ingest is idempotent too", () => {
-  const cwd = workDir();
+test("ingest: stdin re-ingest is idempotent too", (t) => {
+  const cwd = workDir(t);
   const input = line({ ts: 1760000000, model: "gpt-5.5", tokens_in: 1000, tokens_out: 100 }) + "\n";
   const run = () => execFileSync("node", [CLI, "ingest", "-"], { cwd, input, encoding: "utf8" });
 
@@ -332,12 +325,10 @@ test("ingest: stdin re-ingest is idempotent too", () => {
   assert.match(second, /up to date/i);
   assert.match(second, /1 already ingested/);
   assert.equal(usage(cwd).length, 1);
-
-  rmSync(cwd, { recursive: true, force: true });
 });
 
-test("ingest: records without ts are never deduplicated — a repeat is new usage", async () => {
-  const cwd = workDir();
+test("ingest: records without ts are never deduplicated — a repeat is new usage", async (t) => {
+  const cwd = workDir(t);
   const file = join(cwd, "usage.jsonl");
   // `{model, tokens_in, tokens_out}` piped once a day: same line, two real usages
   writeFileSync(file, line({ model: "gpt-5.5", tokens_in: 1000, tokens_out: 100 }) + "\n");
@@ -345,13 +336,11 @@ test("ingest: records without ts are never deduplicated — a repeat is new usag
   assert.equal(await cmdIngest(cwd, [file]), 0);
   assert.equal(await cmdIngest(cwd, [file]), 0);
   assert.equal(usage(cwd).length, 2);
-
-  rmSync(cwd, { recursive: true, force: true });
 });
 
-test("ingest: a corrupt or wrong-shape state file fails the run and writes nothing", async () => {
+test("ingest: a corrupt or wrong-shape state file fails the run and writes nothing", async (t) => {
   for (const bad of ["{not json", '{"ingested":"x"}', '{"ingested":[1]}', "[]", "null"]) {
-    const cwd = workDir();
+    const cwd = workDir(t);
     const file = join(cwd, "usage.jsonl");
     writeFileSync(file, line({ ts: "2026-10-01T10:00:00Z", model: "gpt-5.5", tokens_in: 10, tokens_out: 1 }) + "\n");
     const sources = join(cwd, ".carbon-md", "sources");
@@ -365,13 +354,12 @@ test("ingest: a corrupt or wrong-shape state file fails the run and writes nothi
     assert.match(err, /nothing was written/i);
     assert.equal(usage(cwd).length, 0);
     assert.equal(readFileSync(state, "utf8"), bad);
-    rmSync(cwd, { recursive: true, force: true });
   }
 });
 
 test("ingest: an unwritable state dir aborts before any ledger write", async (t) => {
   if (process.getuid?.() === 0) return t.skip("root ignores directory permissions");
-  const cwd = workDir();
+  const cwd = workDir(t);
   const file = join(cwd, "usage.jsonl");
   writeFileSync(file, line({ ts: "2026-10-01T10:00:00Z", model: "gpt-5.5", tokens_in: 10, tokens_out: 1 }) + "\n");
   assert.equal(await cmdIngest(cwd, [file]), 0);
@@ -390,11 +378,10 @@ test("ingest: an unwritable state dir aborts before any ledger write", async (t)
     chmodSync(sources, 0o755);
   }
   assert.deepEqual(readdirSync(sources), ["ingest.json"]);
-  rmSync(cwd, { recursive: true, force: true });
 });
 
-test("ingest: a state commit failing after the ledger append says so explicitly", async () => {
-  const cwd = workDir();
+test("ingest: a state commit failing after the ledger append says so explicitly", async (t) => {
+  const cwd = workDir(t);
   const file = join(cwd, "usage.jsonl");
   writeFileSync(
     file,
@@ -419,7 +406,6 @@ test("ingest: a state commit failing after the ledger append says so explicitly"
   const sources = join(cwd, ".carbon-md", "sources");
   assert.ok(!existsSync(join(sources, "ingest.json")));
   assert.deepEqual(readdirSync(sources), [], "tmp file cleaned up");
-  rmSync(cwd, { recursive: true, force: true });
 });
 
 /** One OTLP line; each datapoint is [type, value, timeUnixNano]. */
@@ -455,8 +441,8 @@ async function captureStdout<T>(fn: () => Promise<T>): Promise<{ result: T; out:
   }
 }
 
-test("ingest: OTLP dedup is per datapoint — timed ones once, untimed ones every run", async () => {
-  const cwd = workDir();
+test("ingest: OTLP dedup is per datapoint — timed ones once, untimed ones every run", async (t) => {
+  const cwd = workDir(t);
   const file = join(cwd, "otel.jsonl");
   const T = "1760000000000000000";
   writeFileSync(file, otlpLine([["input", "100", T], ["output", "10", T], ["input", "7", "0"]]) + "\n");
@@ -474,11 +460,10 @@ test("ingest: OTLP dedup is per datapoint — timed ones once, untimed ones ever
   const events = usage(cwd);
   assert.equal(events.length, 4);
   assert.equal(events.filter((e) => e.tokens_in === 100).length, 1, "timed datapoint counted once");
-  rmSync(cwd, { recursive: true, force: true });
 });
 
-test("ingest: an OTLP line's invalid datapoints keep being reported as skipped", async () => {
-  const cwd = workDir();
+test("ingest: an OTLP line's invalid datapoints keep being reported as skipped", async (t) => {
+  const cwd = workDir(t);
   const file = join(cwd, "otel.jsonl");
   const T = "1760000000000000000";
   writeFileSync(file, otlpLine([["input", "100", T], ["output", "-5", T]]) + "\n");
@@ -490,5 +475,4 @@ test("ingest: an OTLP line's invalid datapoints keep being reported as skipped",
   assert.equal(second.result, 0);
   assert.match(second.out, /Up to date — nothing new \(1 already ingested, skipped; 1 invalid skipped\)/);
   assert.equal(usage(cwd).length, 1);
-  rmSync(cwd, { recursive: true, force: true });
 });
