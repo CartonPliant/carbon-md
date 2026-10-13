@@ -53,6 +53,8 @@ Ré-ingérer est sans risque. Chaque ligne d'entrée déjà écrite dans le regi
 - ré-ingérer un journal qui a grossi n'ajoute que les nouvelles lignes ;
 - deux lignes réellement identiques dans une même entrée comptent bien comme deux usages.
 
+**Exception : les lignes sans `ts`.** Elles sont horodatées à l'ingestion et toujours ingérées : le même `{model, tokens_in, tokens_out}` envoyé deux jours différents correspond à deux usages réels, et en écarter un sous-compterait sans bruit. La commande l'indique quand elle en rencontre. Ajoutez un `ts` à vos enregistrements pour pouvoir ré-ingérer sans risque.
+
 Une ligne est identifiée par son contenu et sa position parmi les lignes identiques, pas par le nom du fichier — un fichier renommé ou tourné n'est pas compté deux fois. Les lignes ignorées car invalides ne sont pas mémorisées ; elles réapparaissent comme ignorées au passage suivant.
 
 ## Sortie

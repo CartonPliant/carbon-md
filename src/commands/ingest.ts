@@ -36,6 +36,8 @@ import { findPolicyPath } from "../core/policy.js";
  * .carbon-md/sources/ingest.json — the keys of every input line already
  * written to the ledger — so re-ingesting a file (or the same stdin) adds
  * nothing, and re-ingesting a file that has grown adds only the new lines.
+ * Records without a ts are the exception: they can't be told apart from new
+ * usage, so they are always ingested (see the loop in cmdIngest).
  * See lineKeys for why the key is the raw line, not the produced event.
  */
 
@@ -257,6 +259,7 @@ export async function cmdIngest(cwd: string, argv: string[]): Promise<number> {
   const done = new Set(state.ingested);
   const newKeys: string[] = [];
   let already = 0;
+  let untimed = 0;
 
   for (const [i, trimmed] of lines.entries()) {
     if (done.has(keys[i])) {
@@ -283,7 +286,13 @@ export async function cmdIngest(cwd: string, argv: string[]): Promise<number> {
     }
     // Only lines that yielded usage are remembered: a skipped line stays
     // visible as skipped on every run instead of being silently "done".
-    if (lineRecs.length) newKeys.push(keys[i]);
+    // And only timestamped ones: without a ts, two identical lines from two
+    // different runs (`{model, tokens_in, tokens_out}` piped daily, as init
+    // suggests) are two real usages we cannot tell apart from a re-run.
+    // Dropping one would silently under-count, so those lines are always
+    // ingested and the run says so.
+    if (lineRecs.length && lineRecs.every((r) => r.ts)) newKeys.push(keys[i]);
+    else untimed += lineRecs.length;
     recs.push(...lineRecs);
   }
   skipped += invalidDatapoints.n;
@@ -334,6 +343,11 @@ export async function cmdIngest(cwd: string, argv: string[]): Promise<number> {
   if (cacheReadTotal) {
     console.log(
       `  ${cacheReadTotal.toLocaleString()} cache-read tokens recorded but excluded from the estimate`
+    );
+  }
+  if (untimed) {
+    console.log(
+      `  note: ${untimed} record(s) had no ts — stamped now and not deduplicated; ingesting them again counts them again`
     );
   }
   for (const w of warnings) console.log(`  ⚠ ${w}`);

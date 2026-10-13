@@ -162,7 +162,7 @@ test("ingest: re-ingesting the same file is idempotent; appended lines are picke
   const cwd = workDir();
   const file = join(cwd, "usage.jsonl");
   // two genuinely identical lines — both are real usage and both must count
-  const dup = line({ model: "gpt-5.5", tokens_in: 1000, tokens_out: 100 });
+  const dup = line({ ts: "2026-10-01T10:00:00Z", model: "gpt-5.5", tokens_in: 1000, tokens_out: 100 });
   writeFileSync(file, [dup, dup].join("\n") + "\n");
 
   assert.equal(await cmdIngest(cwd, [file]), 0);
@@ -173,7 +173,10 @@ test("ingest: re-ingesting the same file is idempotent; appended lines are picke
   assert.equal(usage(cwd).length, 2);
 
   // append one more identical line and a new one → only those two are added
-  appendFileSync(file, dup + "\n" + line({ model: "gpt-5.5", tokens_in: 5, tokens_out: 5 }) + "\n");
+  appendFileSync(
+    file,
+    dup + "\n" + line({ ts: "2026-10-01T11:00:00Z", model: "gpt-5.5", tokens_in: 5, tokens_out: 5 }) + "\n"
+  );
   assert.equal(await cmdIngest(cwd, [file]), 0);
   assert.equal(usage(cwd).length, 4);
 
@@ -191,7 +194,7 @@ test("ingest: still fails when a fresh input has no usable records", async () =>
 
 test("ingest: stdin re-ingest is idempotent too", () => {
   const cwd = workDir();
-  const input = line({ model: "gpt-5.5", tokens_in: 1000, tokens_out: 100 }) + "\n";
+  const input = line({ ts: 1760000000, model: "gpt-5.5", tokens_in: 1000, tokens_out: 100 }) + "\n";
   const run = () => execFileSync("node", [CLI, "ingest", "-"], { cwd, input, encoding: "utf8" });
 
   assert.match(run(), /Ingested 1 record/);
@@ -199,6 +202,19 @@ test("ingest: stdin re-ingest is idempotent too", () => {
   assert.match(second, /up to date/i);
   assert.match(second, /1 already ingested/);
   assert.equal(usage(cwd).length, 1);
+
+  rmSync(cwd, { recursive: true, force: true });
+});
+
+test("ingest: records without ts are never deduplicated — a repeat is new usage", async () => {
+  const cwd = workDir();
+  const file = join(cwd, "usage.jsonl");
+  // `{model, tokens_in, tokens_out}` piped once a day: same line, two real usages
+  writeFileSync(file, line({ model: "gpt-5.5", tokens_in: 1000, tokens_out: 100 }) + "\n");
+
+  assert.equal(await cmdIngest(cwd, [file]), 0);
+  assert.equal(await cmdIngest(cwd, [file]), 0);
+  assert.equal(usage(cwd).length, 2);
 
   rmSync(cwd, { recursive: true, force: true });
 });

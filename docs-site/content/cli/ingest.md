@@ -53,6 +53,8 @@ Re-ingesting is safe. Every input line already written to the ledger is remember
 - re-ingesting a log that has grown adds only the new lines;
 - two genuinely identical lines in one input still count as two usages.
 
+**Lines without a `ts` are the exception.** They are stamped with the ingestion time and always ingested: the same `{model, tokens_in, tokens_out}` piped on two different days is two real usages, and dropping one would silently under-count. The run prints a note when it sees them. Add a `ts` to your records to make re-ingestion safe.
+
 A line is identified by its content and its position among identical lines, not by file name — a renamed or rotated file isn't counted twice. Lines that were skipped as invalid are not remembered; they show up as skipped again on the next run.
 
 ## Output
