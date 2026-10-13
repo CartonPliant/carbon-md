@@ -40,6 +40,34 @@ test("monthStartUtc: the policy month is the UTC calendar month, whatever the ho
   // 23:30 on 31 Oct in New York is already 1 Nov in UTC.
   assert.equal(monthStartUtc(new Date("2026-10-31T23:30:00-04:00")).toISOString(), "2026-11-01T00:00:00.000Z");
   assert.equal(monthStartUtc(new Date("2026-01-15T12:00:00Z")).toISOString(), "2026-01-01T00:00:00.000Z");
+  assert.equal(monthStartUtc(now).getTime(), Date.UTC(2026, 8, 1));
+});
+
+// The assertions above pass on a UTC host even if monthStartUtc regresses to
+// local midnight, because there local == UTC. Re-run them in a child process
+// pinned to UTC+14 so a local-time regression fails on every machine.
+test("monthStartUtc: same answer in a UTC+14 child process", () => {
+  const ledger = new URL("../core/ledger.js", import.meta.url).href;
+  const script = `
+    const { monthStartUtc } = await import(${JSON.stringify(ledger)});
+    const out = [
+      new Date("2026-10-15T12:00:00Z"),
+      new Date("2026-10-31T12:00:00Z"), // already 1 Nov in Kiritimati
+      new Date(),
+    ].map((d) => monthStartUtc(d).getTime());
+    process.stdout.write(JSON.stringify(out));
+  `;
+  const stdout = execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+    env: { ...process.env, TZ: "Pacific/Kiritimati" },
+    encoding: "utf8",
+    timeout: 10_000,
+  });
+  const now = new Date();
+  assert.deepEqual(JSON.parse(stdout), [
+    Date.UTC(2026, 9, 1),
+    Date.UTC(2026, 9, 1),
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+  ]);
 });
 
 test("inWindow: boundary is inclusive, unparseable ts is outside any window", () => {
