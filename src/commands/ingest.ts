@@ -27,7 +27,8 @@ import { findPolicyPath } from "../core/policy.js";
  *
  * Validation: token counts must be finite, non-negative numbers (numeric
  * strings like "123" are accepted — OTLP/JSON encodes asInt as a string, and
- * report producers do the same). Timestamps must parse; see normalizeTs. A
+ * report producers do the same). Timestamps must be ISO 8601 or a Unix epoch,
+ * and a plausible instant (2000 → now + 1 day); see normalizeTs. A
  * record failing either check is skipped and counted, never written: a NaN
  * poisons every total downstream, a negative count silently cancels real
  * usage, and an Invalid Date drops the event out of every period view.
@@ -78,34 +79,99 @@ function toCount(v: unknown): number | null {
   return null;
 }
 
-/** Below this a numeric epoch is read as seconds, at or above as milliseconds.
- *  1e12 ms is September 2001 and 1e12 s is ~33,000 years out, so the two
- *  readings never collide for any plausible usage timestamp. */
-const EPOCH_MS_THRESHOLD = 1e12;
+/** A numeric epoch's unit is guessed from its magnitude: below 1e12 it is
+ *  seconds, then milliseconds, microseconds from 1e15, nanoseconds from 1e18.
+ *  A present-day instant is ~1.8e9 s, ~1.8e12 ms, ~1.8e15 µs, ~1.8e18 ns, so
+ *  the tiers never collide for recent usage; a value they misread (e.g. ms
+ *  from before Sept 2001, below 1e12) lands far outside the plausibility
+ *  window below and is rejected rather than misdated. */
+const EPOCH_TIERS: [limit: number, toMs: number][] = [
+  [1e12, 1e3], // seconds
+  [1e15, 1], // milliseconds
+  [1e18, 1e-3], // microseconds
+  [Infinity, 1e-6], // nanoseconds
+];
+
+/** 2000-01-01T00:00:00Z. No LLM usage predates it, so an earlier instant is
+ *  a unit mistake (ns sent as s, a 0 "unset" sentinel) — never real. */
+const TS_MIN_MS = Date.UTC(2000, 0, 1);
+/** Clock skew between the producer and this machine is tolerated up to a day;
+ *  beyond that a "future" record is a unit mistake too. */
+const TS_MAX_SKEW_MS = 86_400_000;
+
+/**
+ * The instant as ISO 8601 UTC if it is a plausible usage time, else null.
+ * Without this bound a µs epoch read as ms lands in year 57742 and a 0 in
+ * 1970: both are valid Dates, both silently drop the usage out of every
+ * period view, exactly what the Invalid Date check exists to prevent.
+ */
+function plausibleIso(ms: number): string | null {
+  if (!Number.isFinite(ms) || ms < TS_MIN_MS || ms > Date.now() + TS_MAX_SKEW_MS) return null;
+  return new Date(ms).toISOString();
+}
+
+/** ISO 8601: a date, then optionally a time (minutes, seconds and a
+ *  fraction) after 'T' or a space, then optionally Z or a ±HH:MM / ±HHMM
+ *  offset. Date.parse is not used: it accepts "hello 2026", and reads a
+ *  zone-less time in the host's local zone, so the same file would land in
+ *  different hours (and months) depending on where it is ingested. */
+const ISO_TS =
+  /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d+))?)?(Z|[+-]\d{2}:?\d{2})?)?$/i;
+
+function parseIsoMs(s: string): number | null {
+  const m = ISO_TS.exec(s.trim());
+  if (!m) return null;
+  const [, y, mo, d, h = "0", mi = "0", sec = "0", frac = "", zone] = m;
+  const ms = Number((frac + "000").slice(0, 3));
+  const t = Date.UTC(+y, +mo - 1, +d, +h, +mi, +sec, ms);
+  // Date.UTC rolls 2026-02-30 over to March 2 and 25:00 to the next day;
+  // round-tripping the fields catches every out-of-range component.
+  const back = new Date(t);
+  if (
+    back.getUTCFullYear() !== +y ||
+    back.getUTCMonth() !== +mo - 1 ||
+    back.getUTCDate() !== +d ||
+    back.getUTCHours() !== +h ||
+    back.getUTCMinutes() !== +mi ||
+    back.getUTCSeconds() !== +sec
+  ) {
+    return null;
+  }
+  // No zone means UTC (not host-local time — see ISO_TS).
+  if (!zone || zone.toUpperCase() === "Z") return t;
+  const oh = Number(zone.slice(1, 3));
+  const om = Number(zone.slice(-2));
+  if (oh > 23 || om > 59) return null;
+  const sign = zone[0] === "+" ? 1 : -1;
+  return t - sign * (oh * 60 + om) * 60_000;
+}
 
 /**
  * Normalize a record timestamp to ISO 8601 (UTC).
  *   - absent (undefined/null/"") → undefined: the caller stamps ingestion time
- *   - date string (ISO 8601)     → re-serialized as ISO 8601 UTC
- *   - number or numeric string   → Unix epoch: seconds if < 1e12, else ms
- *   - anything unparseable       → null: the caller skips the record
+ *   - number or numeric string   → Unix epoch, unit from EPOCH_TIERS
+ *   - other string               → must be ISO 8601 (see ISO_TS); a time
+ *                                  without a zone is UTC, a bare date is
+ *                                  UTC midnight
+ *   - anything else, or an instant before 2000 or more than a day ahead
+ *                                → null: the caller skips the record
  * Skipping instead of stamping "now" matters: a bad ts silently moved to
  * today would land the usage in the wrong month of every report.
  */
 export function normalizeTs(v: unknown): string | undefined | null {
   if (v === undefined || v === null || v === "") return undefined;
-  let ms: number;
+  let ms: number | null;
   if (typeof v === "number" || (typeof v === "string" && NUMERIC.test(v))) {
     const n = Number(v);
     if (!Number.isFinite(n) || n < 0) return null;
-    ms = n < EPOCH_MS_THRESHOLD ? n * 1000 : n;
+    const [, toMs] = EPOCH_TIERS.find(([limit]) => n < limit)!;
+    ms = n * toMs;
   } else if (typeof v === "string") {
-    ms = Date.parse(v);
+    ms = parseIsoMs(v);
   } else {
     return null;
   }
-  const d = new Date(ms);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  return ms === null ? null : plausibleIso(ms);
 }
 
 /** `invalid.n` counts datapoints dropped by validation (bad value or time). */
@@ -135,15 +201,15 @@ function flattenOtlp(obj: any, warnings: Set<string>, invalid: { n: number }): R
             continue;
           }
           if (!value) continue;
-          // OTLP's unit is unambiguous (ns), so no seconds/ms heuristic here;
-          // 0 is OTLP's "unset" and falls back to ingestion time.
+          // OTLP's unit is unambiguous (ns), so no epoch-unit heuristic here;
+          // 0 is OTLP's "unset" and falls back to ingestion time. Any other
+          // value still has to be a plausible instant (see plausibleIso).
           const ns = toCount(dp.timeUnixNano);
-          const when = ns ? new Date(ns / 1e6) : undefined;
-          if (ns === null || (when && Number.isNaN(when.getTime()))) {
+          const ts = ns ? plausibleIso(ns / 1e6) : undefined;
+          if (ns === null || ts === null) {
             invalid.n++;
             continue;
           }
-          const ts = when?.toISOString();
           const rec: Rec = { model, tokensIn: 0, tokensOut: 0, cacheRead: 0, ts };
           if (IN_TYPES.has(type)) rec.tokensIn = value;
           else if (OUT_TYPES.has(type)) rec.tokensOut = value;

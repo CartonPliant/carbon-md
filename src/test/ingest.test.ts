@@ -42,6 +42,75 @@ test("normalizeTs: absent → undefined, unparseable → null", () => {
   assert.equal(normalizeTs({}), null);
 });
 
+test("normalizeTs: µs and ns epochs are read in their own unit", () => {
+  assert.equal(normalizeTs(1760000000000000), "2025-10-09T08:53:20.000Z");
+  assert.equal(normalizeTs("1760000000000000000"), "2025-10-09T08:53:20.000Z");
+});
+
+test("normalizeTs: instants before 2000 or more than a day in the future are rejected", () => {
+  assert.equal(normalizeTs(0), null); // 1970
+  assert.equal(normalizeTs(999999999999), null); // seconds → year 33658
+  assert.equal(normalizeTs(946684799), null); // 1999-12-31T23:59:59Z
+  assert.equal(normalizeTs(946684800), "2000-01-01T00:00:00.000Z");
+  assert.equal(normalizeTs("+275760-09-13T00:00:00Z"), null);
+  assert.equal(normalizeTs("1999-12-31T23:59:59Z"), null);
+  const soon = new Date(Date.now() + 3600_000).toISOString();
+  assert.equal(normalizeTs(soon), soon);
+  assert.equal(normalizeTs(new Date(Date.now() + 2 * 86400_000).toISOString()), null);
+});
+
+test("normalizeTs: only ISO 8601 date strings are accepted", () => {
+  assert.equal(normalizeTs("hello 2026"), null);
+  assert.equal(normalizeTs("Aug 1 2026"), null);
+  assert.equal(normalizeTs("2026-08-01T25:00:00Z"), null);
+  assert.equal(normalizeTs("2026-02-30"), null);
+  assert.equal(normalizeTs("2026-08-01T09:12:00+0000junk"), null);
+  // "2026" is all digits, so it is an epoch (seconds → 1970) — and implausible
+  assert.equal(normalizeTs("2026"), null);
+  // date only → UTC midnight
+  assert.equal(normalizeTs("2026-08-01"), "2026-08-01T00:00:00.000Z");
+  // a time without a zone is UTC, whatever the host's TZ
+  assert.equal(normalizeTs("2026-08-01T09:12:00"), "2026-08-01T09:12:00.000Z");
+  assert.equal(normalizeTs("2026-08-01 09:12"), "2026-08-01T09:12:00.000Z");
+  assert.equal(normalizeTs("2026-08-01T09:12:00.123456Z"), "2026-08-01T09:12:00.123Z");
+  assert.equal(normalizeTs("2026-08-01T11:12:00+02:00"), "2026-08-01T09:12:00.000Z");
+  assert.equal(normalizeTs("2026-08-01T04:12:00-0500"), "2026-08-01T09:12:00.000Z");
+});
+
+test("normalizeTs: a zone-less time is UTC regardless of the host TZ", () => {
+  const out = execFileSync(
+    "node",
+    [
+      "--input-type=module",
+      "-e",
+      `import { normalizeTs } from ${JSON.stringify(new URL("../commands/ingest.js", import.meta.url).href)};
+       console.log(normalizeTs("2026-08-01T09:12:00"));`,
+    ],
+    { env: { ...process.env, TZ: "America/New_York" }, encoding: "utf8" }
+  );
+  assert.equal(out.trim(), "2026-08-01T09:12:00.000Z");
+});
+
+test("ingest: an OTLP datapoint with an implausible time is skipped", async () => {
+  const cwd = workDir();
+  const otlp = {
+    resourceMetrics: [{ scopeMetrics: [{ metrics: [{
+      name: "claude_code.token.usage",
+      sum: { aggregationTemporality: 1, dataPoints: [
+        { attributes: [
+            { key: "model", value: { stringValue: "claude-sonnet-4" } },
+            { key: "type", value: { stringValue: "input" } },
+          ], asInt: "500", timeUnixNano: "1760000000" }, // seconds sent as ns → 1970
+      ] },
+    }] }] }],
+  };
+  const file = join(cwd, "otel.jsonl");
+  writeFileSync(file, line(otlp) + "\n");
+  assert.equal(await cmdIngest(cwd, [file]), 1);
+  assert.equal(usage(cwd).length, 0);
+  rmSync(cwd, { recursive: true, force: true });
+});
+
 test("mapReport: non-numeric or negative token counts are rejected", () => {
   assert.equal(mapReport({ model: "gpt-5.5", tokens_in: "abc", tokens_out: 10 }), null);
   assert.equal(mapReport({ model: "gpt-5.5", tokens_in: -5000, tokens_out: 10 }), null);
