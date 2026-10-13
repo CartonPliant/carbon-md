@@ -1,6 +1,8 @@
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { estimateGco2e, FACTORS_VERSION, formatG } from "../core/factors.js";
-import { appendEvents, type UsageEvent } from "../core/ledger.js";
+import { appendEvents, LEDGER_DIR, type UsageEvent } from "../core/ledger.js";
 import { findPolicyPath } from "../core/policy.js";
 
 /**
@@ -29,6 +31,12 @@ import { findPolicyPath } from "../core/policy.js";
  * record failing either check is skipped and counted, never written: a NaN
  * poisons every total downstream, a negative count silently cancels real
  * usage, and an Invalid Date drops the event out of every period view.
+ *
+ * Idempotence: like the sync adapters, ingest keeps state in
+ * .carbon-md/sources/ingest.json — the keys of every input line already
+ * written to the ledger — so re-ingesting a file (or the same stdin) adds
+ * nothing, and re-ingesting a file that has grown adds only the new lines.
+ * See lineKeys for why the key is the raw line, not the produced event.
  */
 
 interface Rec {
@@ -169,6 +177,57 @@ export function mapReport(obj: any): Rec | null {
   };
 }
 
+/**
+ * One key per input line: sha256 of the trimmed line + "#" + its occurrence
+ * index among identical lines in this input. Hashing the raw line (not the
+ * produced event) is what makes this work for records without a ts — those
+ * are stamped with ingestion time, so their events differ on every run. The
+ * occurrence index keeps two genuinely identical lines (same model, same
+ * counts, no ts) as two usages, while a re-run maps them to the same keys.
+ * For an OTLP line the key covers all of its datapoints.
+ *
+ * State is global to the project, not per file: stdin has no path, and a
+ * renamed or rotated file should not be counted again.
+ */
+export function lineKeys(lines: string[]): string[] {
+  const seen = new Map<string, number>();
+  return lines.map((line) => {
+    const hash = createHash("sha256").update(line.trim()).digest("hex");
+    const n = seen.get(hash) ?? 0;
+    seen.set(hash, n + 1);
+    return `${hash}#${n}`;
+  });
+}
+
+interface IngestState {
+  ingested: string[];
+}
+
+function statePath(cwd: string): string {
+  return join(cwd, LEDGER_DIR, "sources", "ingest.json");
+}
+
+function loadState(cwd: string): IngestState {
+  const p = statePath(cwd);
+  if (!existsSync(p)) return { ingested: [] };
+  try {
+    const s = JSON.parse(readFileSync(p, "utf8"));
+    return Array.isArray(s?.ingested) ? s : { ingested: [] };
+  } catch {
+    return { ingested: [] };
+  }
+}
+
+/** Written to a temp file then renamed: a crash mid-write must not leave a
+ *  truncated state that forgets what was ingested and double-counts it all. */
+function saveState(cwd: string, state: IngestState): void {
+  const p = statePath(cwd);
+  mkdirSync(join(cwd, LEDGER_DIR, "sources"), { recursive: true });
+  const tmp = `${p}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(state), "utf8");
+  renameSync(tmp, p);
+}
+
 export async function cmdIngest(cwd: string, argv: string[]): Promise<number> {
   if (!findPolicyPath(cwd)) {
     console.error("✖ No carbon.md here. Run `npx carbon-md init` first.");
@@ -189,9 +248,21 @@ export async function cmdIngest(cwd: string, argv: string[]): Promise<number> {
   let skipped = 0;
   const invalidDatapoints = { n: 0 };
 
-  for (const line of raw.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
+  const lines = raw
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const keys = lineKeys(lines);
+  const state = loadState(cwd);
+  const done = new Set(state.ingested);
+  const newKeys: string[] = [];
+  let already = 0;
+
+  for (const [i, trimmed] of lines.entries()) {
+    if (done.has(keys[i])) {
+      already++;
+      continue;
+    }
     let obj: any;
     try {
       obj = JSON.parse(trimmed);
@@ -199,13 +270,21 @@ export async function cmdIngest(cwd: string, argv: string[]): Promise<number> {
       skipped++;
       continue;
     }
-    if (obj.resourceMetrics) {
-      recs.push(...flattenOtlp(obj, warnings, invalidDatapoints));
+    let lineRecs: Rec[];
+    if (obj?.resourceMetrics) {
+      lineRecs = flattenOtlp(obj, warnings, invalidDatapoints);
     } else {
-      const rec = mapReport(obj);
-      if (rec) recs.push(rec);
-      else skipped++;
+      const rec = obj && typeof obj === "object" ? mapReport(obj) : null;
+      if (!rec) {
+        skipped++;
+        continue;
+      }
+      lineRecs = [rec];
     }
+    // Only lines that yielded usage are remembered: a skipped line stays
+    // visible as skipped on every run instead of being silently "done".
+    if (lineRecs.length) newKeys.push(keys[i]);
+    recs.push(...lineRecs);
   }
   skipped += invalidDatapoints.n;
 
@@ -233,15 +312,24 @@ export async function cmdIngest(cwd: string, argv: string[]): Promise<number> {
     });
   }
 
+  const alreadyNote = already ? `, ${already} already ingested` : "";
   if (!events.length) {
+    if (already) {
+      const invalid = skipped ? `; ${skipped} invalid skipped` : "";
+      console.log(`✔ Up to date — nothing new (${already} already ingested, skipped${invalid}).`);
+      return 0;
+    }
     console.error(`✖ No usable records found (${skipped} skipped).`);
     return 1;
   }
 
+  // Ledger first, state second: a crash in between re-ingests this batch on
+  // the next run (visible, fixable) rather than losing it for good.
   appendEvents(cwd, events);
+  saveState(cwd, { ingested: [...state.ingested, ...newKeys] });
   const total = events.reduce((s, e) => s + e.gco2e.central, 0);
   console.log(
-    `✔ Ingested ${events.length} records (${skipped} skipped) → ~${formatG(total)} central estimate`
+    `✔ Ingested ${events.length} records (${skipped} skipped${alreadyNote}) → ~${formatG(total)} central estimate`
   );
   if (cacheReadTotal) {
     console.log(

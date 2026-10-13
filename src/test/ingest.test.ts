@@ -1,11 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-import { cmdIngest, mapReport, normalizeTs } from "../commands/ingest.js";
+import { cmdIngest, lineKeys, mapReport, normalizeTs } from "../commands/ingest.js";
 import { readLedger, type UsageEvent } from "../core/ledger.js";
+
+const CLI = fileURLToPath(new URL("../index.js", import.meta.url));
 
 const POLICY = `---\ncarbon_md: "0.1"\npolicy:\n  contribution_target: 1.10\n  monthly_budget_max: { amount: 5, currency: USD }\n  approval_above: { amount: 10, currency: USD }\nmethodology: carbonmd-factors-2026-07\n---\n`;
 
@@ -57,6 +61,17 @@ test("mapReport: an unparseable ts rejects the record", () => {
   assert.equal(mapReport({ model: "gpt-5.5", tokens_in: 10, ts: "not-a-date" }), null);
   const rec = mapReport({ model: "gpt-5.5", tokens_in: 10, ts: 1760000000 });
   assert.equal(rec?.ts, "2025-10-09T08:53:20.000Z");
+});
+
+test("lineKeys: identical lines get distinct occurrence-indexed keys", () => {
+  const keys = lineKeys(["a", "b", "a", "a"]);
+  assert.equal(new Set(keys).size, 4);
+  assert.equal(keys[0].split("#")[0], keys[2].split("#")[0]);
+  assert.ok(keys[0].endsWith("#0"));
+  assert.ok(keys[2].endsWith("#1"));
+  assert.ok(keys[3].endsWith("#2"));
+  // keys only depend on content + position among duplicates, not on the batch
+  assert.deepEqual(lineKeys(["a", "b"]), keys.slice(0, 2));
 });
 
 test("ingest: invalid records are skipped and never reach the ledger", async () => {
@@ -143,11 +158,47 @@ test("ingest: OTLP datapoints with negative values or bad timestamps are skipped
   rmSync(cwd, { recursive: true, force: true });
 });
 
+test("ingest: re-ingesting the same file is idempotent; appended lines are picked up", async () => {
+  const cwd = workDir();
+  const file = join(cwd, "usage.jsonl");
+  // two genuinely identical lines — both are real usage and both must count
+  const dup = line({ model: "gpt-5.5", tokens_in: 1000, tokens_out: 100 });
+  writeFileSync(file, [dup, dup].join("\n") + "\n");
+
+  assert.equal(await cmdIngest(cwd, [file]), 0);
+  assert.equal(usage(cwd).length, 2);
+
+  // same file again → nothing new, and that is success, not an error
+  assert.equal(await cmdIngest(cwd, [file]), 0);
+  assert.equal(usage(cwd).length, 2);
+
+  // append one more identical line and a new one → only those two are added
+  appendFileSync(file, dup + "\n" + line({ model: "gpt-5.5", tokens_in: 5, tokens_out: 5 }) + "\n");
+  assert.equal(await cmdIngest(cwd, [file]), 0);
+  assert.equal(usage(cwd).length, 4);
+
+  rmSync(cwd, { recursive: true, force: true });
+});
+
 test("ingest: still fails when a fresh input has no usable records", async () => {
   const cwd = workDir();
   const file = join(cwd, "usage.jsonl");
   writeFileSync(file, "not json\n" + line({ model: "gpt-5.5", tokens_in: "abc" }) + "\n");
   assert.equal(await cmdIngest(cwd, [file]), 1);
   assert.equal(usage(cwd).length, 0);
+  rmSync(cwd, { recursive: true, force: true });
+});
+
+test("ingest: stdin re-ingest is idempotent too", () => {
+  const cwd = workDir();
+  const input = line({ model: "gpt-5.5", tokens_in: 1000, tokens_out: 100 }) + "\n";
+  const run = () => execFileSync("node", [CLI, "ingest", "-"], { cwd, input, encoding: "utf8" });
+
+  assert.match(run(), /Ingested 1 record/);
+  const second = run();
+  assert.match(second, /up to date/i);
+  assert.match(second, /1 already ingested/);
+  assert.equal(usage(cwd).length, 1);
+
   rmSync(cwd, { recursive: true, force: true });
 });
